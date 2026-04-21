@@ -112,6 +112,8 @@
     <script>
       const bubble = document.getElementById("bubble");
       const content = document.getElementById("content");
+      const SCROLL_DELTA_SCALE = 0.28;
+      const SCROLL_DELTA_MAX = 24;
       let expanded = false;
 
       function setExpanded(nextExpanded) {
@@ -161,6 +163,23 @@
         content.scrollTop = 0;
         window.replyBubbleBridge.hovered(false);
       });
+
+      content.addEventListener(
+        "wheel",
+        (event) => {
+          if (!expanded) {
+            return;
+          }
+
+          event.preventDefault();
+          const nextDelta = Math.max(
+            -SCROLL_DELTA_MAX,
+            Math.min(SCROLL_DELTA_MAX, event.deltaY * SCROLL_DELTA_SCALE)
+          );
+          content.scrollTop += nextDelta;
+        },
+        { passive: false }
+      );
     </script>
   </body>
   </html>
