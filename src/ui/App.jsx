@@ -224,62 +224,32 @@ function isNearWhitePixel(data, pixelIndex) {
   return alpha >= 200 && brightness >= ISOLATED_WHITE_THRESHOLD && spread <= ISOLATED_WHITE_MAX_SPREAD;
 }
 
-function getBestEyeBlock(seedX, seedY, width, height, sourceData) {
-  const sizes = [3, 2];
+function getCenteredEyePixels(seedX, seedY, width, height, sourceData) {
+  const pixels = [];
 
-  for (const size of sizes) {
-    const candidates = [];
+  for (let offsetY = -1; offsetY <= 1; offsetY += 1) {
+    for (let offsetX = -1; offsetX <= 1; offsetX += 1) {
+      const x = seedX + offsetX;
+      const y = seedY + offsetY;
 
-    for (let startY = seedY - size + 1; startY <= seedY; startY += 1) {
-      for (let startX = seedX - size + 1; startX <= seedX; startX += 1) {
-        const endX = startX + size - 1;
-        const endY = startY + size - 1;
-
-        if (startX < 0 || startY < 0 || endX >= width || endY >= height) {
-          continue;
-        }
-
-        let allOpaque = true;
-        let supportScore = 0;
-
-        for (let y = startY; y <= endY; y += 1) {
-          for (let x = startX; x <= endX; x += 1) {
-            const pixelIndex = ((y * width) + x) * 4;
-            if (sourceData[pixelIndex + 3] < 64) {
-              allOpaque = false;
-              break;
-            }
-
-            supportScore += sourceData[pixelIndex + 3];
-          }
-
-          if (!allOpaque) {
-            break;
-          }
-        }
-
-        if (allOpaque) {
-          candidates.push({
-            startX,
-            startY,
-            size,
-            supportScore
-          });
-        }
+      if (x < 0 || x >= width || y < 0 || y >= height) {
+        continue;
       }
-    }
 
-    if (candidates.length > 0) {
-      candidates.sort((left, right) => right.supportScore - left.supportScore);
-      return candidates[0];
+      const pixelIndex = ((y * width) + x) * 4;
+      if (sourceData[pixelIndex + 3] < 64) {
+        continue;
+      }
+
+      pixels.push({ x, y });
     }
   }
 
-  return {
-    startX: seedX,
-    startY: seedY,
-    size: 1
-  };
+  if (pixels.length > 0) {
+    return pixels;
+  }
+
+  return [{ x: seedX, y: seedY }];
 }
 
 function turnIsolatedWhitePixelsBlack(imageData, width, height) {
@@ -322,16 +292,14 @@ function turnIsolatedWhitePixelsBlack(imageData, width, height) {
   }
 
   for (const seed of eyeSeeds) {
-    const block = getBestEyeBlock(seed.x, seed.y, width, height, sourceData);
+    const expandedPixels = getCenteredEyePixels(seed.x, seed.y, width, height, sourceData);
 
-    for (let y = block.startY; y < block.startY + block.size; y += 1) {
-      for (let x = block.startX; x < block.startX + block.size; x += 1) {
-        const pixelIndex = ((y * width) + x) * 4;
-        data[pixelIndex] = EYE_PIXEL_DARK_VALUE;
-        data[pixelIndex + 1] = EYE_PIXEL_DARK_VALUE;
-        data[pixelIndex + 2] = EYE_PIXEL_DARK_VALUE;
-        data[pixelIndex + 3] = 255;
-      }
+    for (const pixel of expandedPixels) {
+      const pixelIndex = ((pixel.y * width) + pixel.x) * 4;
+      data[pixelIndex] = EYE_PIXEL_DARK_VALUE;
+      data[pixelIndex + 1] = EYE_PIXEL_DARK_VALUE;
+      data[pixelIndex + 2] = EYE_PIXEL_DARK_VALUE;
+      data[pixelIndex + 3] = 255;
     }
   }
 
