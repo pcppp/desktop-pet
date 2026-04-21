@@ -6,6 +6,7 @@ const {
   readQuota,
   updateQuotaCacheFromClaudeStatus
 } = require("./quota-source");
+const { createClaudeTranscriptWatcher } = require("./claude-transcript-watcher");
 
 const WINDOW_SIZE = 220;
 const dataDir = path.join(__dirname, "..", "data");
@@ -16,6 +17,7 @@ let mainWindow;
 let tray;
 let currentQuota = readQuota();
 let eventWatcher;
+let claudeTranscriptWatcher;
 let quotaRefreshTimer;
 let isQuotaRefreshing = false;
 
@@ -261,6 +263,11 @@ app.whenReady().then(() => {
   createWindow();
   createTray();
   watchEvents();
+  claudeTranscriptWatcher = createClaudeTranscriptWatcher({
+    onReplyFinished: () => {
+      sendAnimation("reply-finished");
+    }
+  });
   setTimeout(() => {
     void syncQuotaFromClaudeStatus({ animate: false });
   }, 1500);
@@ -284,6 +291,9 @@ app.on("window-all-closed", () => {
 app.on("before-quit", () => {
   if (eventWatcher) {
     eventWatcher.close();
+  }
+  if (claudeTranscriptWatcher) {
+    claudeTranscriptWatcher.close();
   }
   if (quotaRefreshTimer) {
     clearInterval(quotaRefreshTimer);
