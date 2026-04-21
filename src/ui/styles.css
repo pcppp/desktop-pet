@@ -448,8 +448,8 @@ select {
 .custom-pet-image {
   position: relative;
   display: block;
-  max-width: 132px;
-  max-height: 132px;
+  max-width: 148px;
+  max-height: 148px;
   width: auto;
   height: auto;
   object-fit: contain;

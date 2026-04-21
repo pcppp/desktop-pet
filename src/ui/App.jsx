@@ -40,8 +40,9 @@ export default function App() {
   const [animationCycle, setAnimationCycle] = useState(0);
   const [appearance, setAppearance] = useState({
     mode: "preset",
-    presetId: "default",
-    presetLabel: "Default Pixel Pet",
+    renderMode: "pixel",
+    presetId: "shygirl",
+    presetLabel: "Shy Knees Girl",
     motionModule: "sweet",
     motionModuleLabel: "Sweet",
     sourceImageLabel: null,
@@ -302,13 +303,13 @@ export default function App() {
       <div
         key={animationCycle}
         id="pet"
-        className={`state-${state} ${appearance.mode === "custom" ? "is-custom" : "is-preset"} motion-${appearance.motionModule || "sweet"} preset-${appearance.presetId || "default"}`}
+        className={`state-${state} ${appearance.mode === "custom" || appearance.renderMode === "image" ? "is-custom" : "is-preset"} motion-${appearance.motionModule || "sweet"} preset-${appearance.presetId || "default"}`}
         title="Desktop Pet"
         onPointerDown={handlePointerDown}
         onContextMenu={handleContextMenu}
       >
         <div className="pet-shadow"></div>
-        {appearance.mode === "custom" && appearance.sourceDataUrl ? (
+        {(appearance.mode === "custom" || appearance.renderMode === "image") && appearance.sourceDataUrl ? (
           <div ref={spriteRef} className="custom-pet-shell">
             <img
               className="custom-pet-image"

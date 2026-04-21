@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 
+const builtInPetImageDir = path.join(__dirname, "assets", "pets");
 const SUPPORTED_IMAGE_EXTENSIONS = new Set([
   ".png",
   ".jpg",
@@ -30,6 +31,12 @@ const APPEARANCE_PRESETS = {
     id: "moonlight",
     label: "Moonlight Maid",
     labelZh: "月夜女仆"
+  },
+  shygirl: {
+    id: "shygirl",
+    label: "Shy Knees Girl",
+    labelZh: "抱膝害羞少女",
+    builtInImageName: "shy-knees-girl.png"
   }
 };
 
@@ -78,7 +85,7 @@ function getMotionModule(motionModule) {
 function createDefaultAppearance() {
   return {
     mode: "preset",
-    presetId: "default",
+    presetId: "shygirl",
     motionModule: "sweet",
     sourceImageName: null,
     sourceImageLabel: null,
@@ -209,6 +216,50 @@ function getMimeTypeFromImagePath(filePath) {
   }
 }
 
+function getBuiltInPresetImagePath(presetId) {
+  const preset = getAppearancePreset(presetId);
+  if (!preset.builtInImageName) {
+    return null;
+  }
+
+  return path.join(builtInPetImageDir, preset.builtInImageName);
+}
+
+function toRendererPresetAppearance(appearance) {
+  const presetId = normalizePresetId(appearance.presetId);
+  const preset = getAppearancePreset(presetId);
+  const builtInImagePath = getBuiltInPresetImagePath(presetId);
+
+  if (builtInImagePath && fs.existsSync(builtInImagePath)) {
+    const buffer = fs.readFileSync(builtInImagePath);
+    const mimeType = getMimeTypeFromImagePath(builtInImagePath);
+
+    return {
+      mode: "preset",
+      renderMode: "image",
+      presetId,
+      presetLabel: preset.label,
+      motionModule: normalizeMotionModule(appearance.motionModule),
+      motionModuleLabel: getMotionModule(appearance.motionModule).label,
+      sourceImageLabel: preset.label,
+      sourceDataUrl: `data:${mimeType};base64,${buffer.toString("base64")}`,
+      updatedAt: appearance.updatedAt
+    };
+  }
+
+  return {
+    mode: "preset",
+    renderMode: "pixel",
+    presetId,
+    presetLabel: preset.label,
+    motionModule: normalizeMotionModule(appearance.motionModule),
+    motionModuleLabel: getMotionModule(appearance.motionModule).label,
+    sourceImageLabel: null,
+    sourceDataUrl: null,
+    updatedAt: appearance.updatedAt
+  };
+}
+
 function removeStoredImage(baseDir, appearance) {
   const storedImagePath = getStoredImagePath(baseDir, appearance);
 
@@ -229,30 +280,17 @@ function toRendererAppearance(baseDir, appearanceInput) {
   const appearance = normalizeAppearance(appearanceInput || readAppearance(baseDir));
 
   if (appearance.mode !== "custom") {
-    return {
-      mode: "preset",
-      presetId: normalizePresetId(appearance.presetId),
-      presetLabel: getAppearancePreset(appearance.presetId).label,
-      motionModule: normalizeMotionModule(appearance.motionModule),
-      motionModuleLabel: getMotionModule(appearance.motionModule).label,
-      sourceImageLabel: null,
-      sourceDataUrl: null,
-      updatedAt: appearance.updatedAt
-    };
+    return toRendererPresetAppearance(appearance);
   }
 
   const storedImagePath = getStoredImagePath(baseDir, appearance);
   if (!storedImagePath || !fs.existsSync(storedImagePath)) {
-    return {
+    return toRendererPresetAppearance({
       mode: "preset",
-      presetId: "default",
-      presetLabel: getAppearancePreset("default").label,
-      motionModule: normalizeMotionModule(appearance.motionModule),
-      motionModuleLabel: getMotionModule(appearance.motionModule).label,
-      sourceImageLabel: null,
-      sourceDataUrl: null,
+      presetId: "shygirl",
+      motionModule: appearance.motionModule,
       updatedAt: appearance.updatedAt
-    };
+    });
   }
 
   const buffer = fs.readFileSync(storedImagePath);
@@ -260,6 +298,7 @@ function toRendererAppearance(baseDir, appearanceInput) {
 
   return {
     mode: "custom",
+    renderMode: "image",
     presetId: null,
     presetLabel: null,
     motionModule: normalizeMotionModule(appearance.motionModule),
