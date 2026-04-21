@@ -38,58 +38,51 @@ function createEmptyQuota() {
   };
 }
 
-function normalizeBucket(bucket, fallbackLabel) {
+function cloneBucket(bucket, fallbackLabel) {
   const isCurrentSession = fallbackLabel === "Current session";
   const defaultMenuTitle = isCurrentSession ? "5小时 limit --" : "Weekly Limits --";
   const defaultMenuSubtitle = isCurrentSession ? "Resets in Unknown" : "Resets Unknown";
-
-  const sanitizeCurrentSessionBucket = (normalizedBucket) => {
-    if (!isCurrentSession) {
-      return normalizedBucket;
-    }
-
-    if (isCurrentSessionResetText(normalizedBucket.resetsAt)) {
-      return normalizedBucket;
-    }
-
-    return {
-      ...normalizedBucket,
-      resetsAt: "Unknown",
-      menuSubtitle: defaultMenuSubtitle
-    };
-  };
+  const rawLastKnownValidResetsAt = bucket && typeof bucket === "object"
+    ? bucket.lastKnownValidResetsAt
+    : null;
+  const lastKnownValidResetsAt = isCurrentSession && isCurrentSessionResetText(rawLastKnownValidResetsAt)
+    ? rawLastKnownValidResetsAt
+    : null;
 
   if (!bucket || typeof bucket !== "object") {
-    return sanitizeCurrentSessionBucket({
+    return {
       label: fallbackLabel,
       display: "Unavailable",
       usedPercent: null,
       resetsAt: "Unknown",
       menuTitle: defaultMenuTitle,
-      menuSubtitle: defaultMenuSubtitle
-    });
+      menuSubtitle: defaultMenuSubtitle,
+      lastKnownValidResetsAt
+    };
   }
 
   if (typeof bucket.display === "string") {
-    return sanitizeCurrentSessionBucket({
+    return {
       label: typeof bucket.label === "string" ? bucket.label : fallbackLabel,
       display: bucket.display,
       usedPercent: Number.isFinite(bucket.usedPercent) ? bucket.usedPercent : null,
       resetsAt: typeof bucket.resetsAt === "string" ? bucket.resetsAt : "Unknown",
       menuTitle: typeof bucket.menuTitle === "string" ? bucket.menuTitle : undefined,
-      menuSubtitle: typeof bucket.menuSubtitle === "string" ? bucket.menuSubtitle : undefined
-    });
+      menuSubtitle: typeof bucket.menuSubtitle === "string" ? bucket.menuSubtitle : undefined,
+      lastKnownValidResetsAt
+    };
   }
 
   if (Number.isFinite(bucket.usedPercent)) {
-    return sanitizeCurrentSessionBucket({
+    return {
       label: typeof bucket.label === "string" ? bucket.label : fallbackLabel,
       display: `${bucket.usedPercent}% used`,
       usedPercent: bucket.usedPercent,
       resetsAt: typeof bucket.resetsAt === "string" ? bucket.resetsAt : "Unknown",
       menuTitle: typeof bucket.menuTitle === "string" ? bucket.menuTitle : undefined,
-      menuSubtitle: typeof bucket.menuSubtitle === "string" ? bucket.menuSubtitle : undefined
-    });
+      menuSubtitle: typeof bucket.menuSubtitle === "string" ? bucket.menuSubtitle : undefined,
+      lastKnownValidResetsAt
+    };
   }
 
   if (Number.isFinite(bucket.used) && Number.isFinite(bucket.limit)) {
@@ -97,24 +90,85 @@ function normalizeBucket(bucket, fallbackLabel) {
       ? Math.round((bucket.used / bucket.limit) * 100)
       : null;
 
-    return sanitizeCurrentSessionBucket({
+    return {
       label: typeof bucket.label === "string" ? bucket.label : fallbackLabel,
       display: `${bucket.used}/${bucket.limit}`,
       usedPercent,
       resetsAt: typeof bucket.resetsAt === "string" ? bucket.resetsAt : "Unknown",
       menuTitle: typeof bucket.menuTitle === "string" ? bucket.menuTitle : undefined,
-      menuSubtitle: typeof bucket.menuSubtitle === "string" ? bucket.menuSubtitle : undefined
-    });
+      menuSubtitle: typeof bucket.menuSubtitle === "string" ? bucket.menuSubtitle : undefined,
+      lastKnownValidResetsAt
+    };
   }
 
-  return sanitizeCurrentSessionBucket({
+  return {
     label: fallbackLabel,
     display: "Unavailable",
     usedPercent: null,
     resetsAt: "Unknown",
     menuTitle: defaultMenuTitle,
-    menuSubtitle: defaultMenuSubtitle
-  });
+    menuSubtitle: defaultMenuSubtitle,
+    lastKnownValidResetsAt
+  };
+}
+
+function mergeCurrentSessionFallback(bucket, previousBucket) {
+  const nextBucket = bucket;
+  const previous = previousBucket && typeof previousBucket === "object"
+    ? previousBucket
+    : null;
+  const currentValidReset = isCurrentSessionResetText(nextBucket.resetsAt)
+    ? nextBucket.resetsAt
+    : null;
+  const storedValidReset = isCurrentSessionResetText(nextBucket.lastKnownValidResetsAt)
+    ? nextBucket.lastKnownValidResetsAt
+    : null;
+  const previousValidReset = previous && isCurrentSessionResetText(previous.resetsAt)
+    ? previous.resetsAt
+    : null;
+  const previousStoredValidReset = previous && isCurrentSessionResetText(previous.lastKnownValidResetsAt)
+    ? previous.lastKnownValidResetsAt
+    : null;
+
+  if (currentValidReset) {
+    return {
+      ...nextBucket,
+      lastKnownValidResetsAt: currentValidReset
+    };
+  }
+
+  const fallbackReset = storedValidReset || previousValidReset || previousStoredValidReset;
+
+  if (fallbackReset) {
+    return {
+      ...nextBucket,
+      resetsAt: fallbackReset,
+      menuSubtitle: previous && typeof previous.menuSubtitle === "string" && previous.menuSubtitle
+        ? previous.menuSubtitle
+        : `Resets at ${formatResetForMenu(fallbackReset)}`,
+      lastKnownValidResetsAt: fallbackReset
+    };
+  }
+
+  return {
+    ...nextBucket,
+    resetsAt: "Unknown",
+    menuSubtitle: "Resets in Unknown",
+    lastKnownValidResetsAt: null
+  };
+}
+
+function normalizeBucket(bucket, fallbackLabel, previousBucket) {
+  const isCurrentSession = fallbackLabel === "Current session";
+  const normalizedBucket = cloneBucket(bucket, fallbackLabel);
+  if (!isCurrentSession) {
+    return normalizedBucket;
+  }
+
+  return mergeCurrentSessionFallback(
+    normalizedBucket,
+    cloneBucket(previousBucket, fallbackLabel)
+  );
 }
 
 function formatUsageDisplay(bucket, fallbackLabel) {
@@ -152,7 +206,10 @@ function formatUsageDisplay(bucket, fallbackLabel) {
     usedPercent: Number.isFinite(bucket.usedPercent) ? bucket.usedPercent : null,
     resetsAt,
     menuTitle,
-    menuSubtitle
+    menuSubtitle,
+    lastKnownValidResetsAt: typeof bucket.lastKnownValidResetsAt === "string"
+      ? bucket.lastKnownValidResetsAt
+      : undefined
   };
 }
 
@@ -163,10 +220,24 @@ function normalizeQuota(raw) {
     return empty;
   }
 
+  const previousQuota = (() => {
+    if (!raw.previousQuota || typeof raw.previousQuota !== "object") {
+      return empty;
+    }
+
+    return raw.previousQuota;
+  })();
+
   return {
     source: typeof raw.source === "string" ? raw.source : empty.source,
-    weekly: formatUsageDisplay(normalizeBucket(raw.weekly, empty.weekly.label), empty.weekly.label),
-    fiveHour: formatUsageDisplay(normalizeBucket(raw.fiveHour, empty.fiveHour.label), empty.fiveHour.label),
+    weekly: formatUsageDisplay(
+      normalizeBucket(raw.weekly, empty.weekly.label, previousQuota.weekly),
+      empty.weekly.label
+    ),
+    fiveHour: formatUsageDisplay(
+      normalizeBucket(raw.fiveHour, empty.fiveHour.label, previousQuota.fiveHour),
+      empty.fiveHour.label
+    ),
     updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : empty.updatedAt,
     error: typeof raw.error === "string" ? raw.error : undefined
   };
@@ -640,9 +711,14 @@ async function fetchQuotaFromClaudeStatusWithRetry(options = {}) {
 }
 
 async function updateQuotaCacheFromClaudeStatus(options = {}) {
+  const previousQuota = readQuota();
   const quota = await fetchQuotaFromClaudeStatusWithRetry(options);
-  writeQuota(quota);
-  return quota;
+  const normalizedQuota = normalizeQuota({
+    ...quota,
+    previousQuota
+  });
+  writeQuota(normalizedQuota);
+  return normalizedQuota;
 }
 
 module.exports = {
