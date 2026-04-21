@@ -10,6 +10,9 @@ const CUSTOM_PIXEL_COLOR_LEVELS = 3;
 const CUSTOM_PIXEL_COLOR_MERGE_DISTANCE = 144;
 const WHITE_BG_THRESHOLD = 246;
 const WHITE_BG_MAX_SPREAD = 18;
+const ISOLATED_WHITE_THRESHOLD = 228;
+const ISOLATED_WHITE_MAX_SPREAD = 42;
+const ISOLATED_WHITE_MIN_OPAQUE_NEIGHBORS = 3;
 const DEFAULT_SOUND_SETTINGS = {
   masterMuted: false,
   masterVolume: 75,
@@ -209,6 +212,65 @@ function mergeNearbyPaletteColors(imageData, mergeDistance = CUSTOM_PIXEL_COLOR_
   return imageData;
 }
 
+function isNearWhitePixel(data, pixelIndex) {
+  const red = data[pixelIndex];
+  const green = data[pixelIndex + 1];
+  const blue = data[pixelIndex + 2];
+  const alpha = data[pixelIndex + 3];
+  const spread = Math.max(red, green, blue) - Math.min(red, green, blue);
+  const brightness = (red + green + blue) / 3;
+
+  return alpha >= 200 && brightness >= ISOLATED_WHITE_THRESHOLD && spread <= ISOLATED_WHITE_MAX_SPREAD;
+}
+
+function turnIsolatedWhitePixelsBlack(imageData, width, height) {
+  const { data } = imageData;
+  const whitePixelsToDarken = [];
+
+  for (let y = 1; y < height - 1; y += 1) {
+    for (let x = 1; x < width - 1; x += 1) {
+      const pixelIndex = ((y * width) + x) * 4;
+
+      if (!isNearWhitePixel(data, pixelIndex)) {
+        continue;
+      }
+
+      let whiteNeighbors = 0;
+      let opaqueNeighbors = 0;
+
+      for (let offsetY = -1; offsetY <= 1; offsetY += 1) {
+        for (let offsetX = -1; offsetX <= 1; offsetX += 1) {
+          if (offsetX === 0 && offsetY === 0) {
+            continue;
+          }
+
+          const neighborIndex = ((((y + offsetY) * width) + (x + offsetX)) * 4);
+          if (data[neighborIndex + 3] >= 64) {
+            opaqueNeighbors += 1;
+          }
+
+          if (isNearWhitePixel(data, neighborIndex)) {
+            whiteNeighbors += 1;
+          }
+        }
+      }
+
+      if (whiteNeighbors === 0 && opaqueNeighbors >= ISOLATED_WHITE_MIN_OPAQUE_NEIGHBORS) {
+        whitePixelsToDarken.push(pixelIndex);
+      }
+    }
+  }
+
+  for (const pixelIndex of whitePixelsToDarken) {
+    data[pixelIndex] = 24;
+    data[pixelIndex + 1] = 24;
+    data[pixelIndex + 2] = 24;
+    data[pixelIndex + 3] = 255;
+  }
+
+  return imageData;
+}
+
 function createPixelArtDataUrl(imageSource, size = { width: PIXEL_WIDTH, height: PIXEL_HEIGHT }) {
   return new Promise((resolve, reject) => {
     const image = new window.Image();
@@ -309,6 +371,7 @@ function createPixelArtDataUrl(imageSource, size = { width: PIXEL_WIDTH, height:
       }
 
       mergeNearbyPaletteColors(imageData);
+      turnIsolatedWhitePixelsBlack(imageData, targetWidth, targetHeight);
       sampleContext.putImageData(imageData, 0, 0);
 
       const outputCanvas = document.createElement("canvas");
