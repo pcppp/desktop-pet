@@ -9,10 +9,16 @@ const {
 const { createClaudeTranscriptWatcher } = require("./claude-transcript-watcher");
 const { createCodexTranscriptWatcher } = require("./codex-transcript-watcher");
 const {
+  APPEARANCE_PRESETS,
+  MOTION_MODULES,
   ensureAppearanceStorage,
+  getAppearancePreset,
+  getMotionModule,
   readAppearance,
   resetAppearance,
   saveCustomAppearance,
+  setMotionModule,
+  setPresetAppearance,
   toRendererAppearance
 } = require("./pet-appearance");
 const {
@@ -202,6 +208,10 @@ function getUiStrings() {
       },
       timeZone: "时区",
       timeZoneValue: (label) => `时区：${label}`,
+      themePack: "主题包",
+      themePackValue: (label) => `主题包：${label}`,
+      actionModule: "动作模组",
+      actionModuleValue: (label) => `动作模组：${label}`,
       petImageCurrent: (label) => `桌宠形象：${label || "自定义"}`,
       petImageDefault: "桌宠形象：默认像素宠物",
       chooseCustomPetImage: "选择自定义桌宠图片",
@@ -271,6 +281,10 @@ function getUiStrings() {
     },
     timeZone: "Time Zone",
     timeZoneValue: (label) => `Time Zone: ${label}`,
+    themePack: "Theme Pack",
+    themePackValue: (label) => `Theme Pack: ${label}`,
+    actionModule: "Action Module",
+    actionModuleValue: (label) => `Action Module: ${label}`,
     petImageCurrent: (label) => `Pet Image: ${label || "Custom"}`,
     petImageDefault: "Pet Image: Default Pixel Pet",
     chooseCustomPetImage: "Choose Custom Pet Image",
@@ -321,6 +335,16 @@ function getConfiguredTimeZone() {
 function getTimeZoneOptionLabel(preference) {
   const option = TIME_ZONE_OPTIONS[preference] || TIME_ZONE_OPTIONS.system;
   return isChineseUiEnabled() ? option.labelZh : option.label;
+}
+
+function getAppearancePresetLabel(presetId) {
+  const preset = getAppearancePreset(presetId);
+  return isChineseUiEnabled() ? preset.labelZh : preset.label;
+}
+
+function getMotionModuleLabel(motionModule) {
+  const moduleInfo = getMotionModule(motionModule);
+  return isChineseUiEnabled() ? moduleInfo.labelZh : moduleInfo.label;
 }
 
 function detectResetTimeZone(resetsAt) {
@@ -581,6 +605,7 @@ function buildContextMenu() {
   const timeZonePreference = getSelectedTimeZonePreference();
   const replySourceMode = normalizeReplySourceMode(currentMenuSettings.replySourceMode);
   const replyBubbleSize = normalizeReplyBubbleSize(currentMenuSettings.replyBubbleSize);
+  const appearanceRenderer = toRendererAppearance(dataDir, currentAppearance);
   const weekly = currentQuota.weekly.display;
   const fiveHour = currentQuota.fiveHour.display;
   const fiveHourSubtitle = formatFiveHourResetSubtitle(currentQuota.fiveHour.resetsAt);
@@ -614,9 +639,9 @@ function buildContextMenu() {
 
   if (currentMenuSettings.showPetImageInMainMenu) {
     settingsItems.push({
-      label: currentAppearance && currentAppearance.mode === "custom"
-        ? strings.petImageCurrent(currentAppearance.sourceImageLabel)
-        : strings.petImageDefault,
+      label: appearanceRenderer.mode === "custom"
+        ? strings.petImageCurrent(appearanceRenderer.sourceImageLabel)
+        : strings.petImageCurrent(getAppearancePresetLabel(appearanceRenderer.presetId)),
       enabled: false
     });
   }
@@ -635,6 +660,18 @@ function buildContextMenu() {
         ? `${getTimeZoneOptionLabel("system")} (${getSystemTimeZone()})`
         : getTimeZoneOptionLabel(timeZonePreference)
     ),
+    enabled: false
+  });
+  settingsItems.push({
+    label: strings.themePackValue(
+      appearanceRenderer.mode === "custom"
+        ? (appearanceRenderer.sourceImageLabel || (isChineseUiEnabled() ? "自定义图片" : "Custom Image"))
+        : getAppearancePresetLabel(appearanceRenderer.presetId)
+    ),
+    enabled: false
+  });
+  settingsItems.push({
+    label: strings.actionModuleValue(getMotionModuleLabel(appearanceRenderer.motionModule)),
     enabled: false
   });
 
@@ -765,6 +802,28 @@ function buildContextMenu() {
               }
             }
           ]
+        },
+        {
+          label: strings.themePack,
+          submenu: Object.values(APPEARANCE_PRESETS).map((preset) => ({
+            label: isChineseUiEnabled() ? preset.labelZh : preset.label,
+            type: "radio",
+            checked: appearanceRenderer.mode !== "custom" && appearanceRenderer.presetId === preset.id,
+            click: () => {
+              applyAppearance(setPresetAppearance(dataDir, preset.id));
+            }
+          }))
+        },
+        {
+          label: strings.actionModule,
+          submenu: Object.values(MOTION_MODULES).map((moduleInfo) => ({
+            label: isChineseUiEnabled() ? moduleInfo.labelZh : moduleInfo.label,
+            type: "radio",
+            checked: appearanceRenderer.motionModule === moduleInfo.id,
+            click: () => {
+              applyAppearance(setMotionModule(dataDir, moduleInfo.id));
+            }
+          }))
         },
         {
           label: strings.timeZone,

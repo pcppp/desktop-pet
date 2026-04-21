@@ -34,14 +34,16 @@ const DEFAULT_SOUND_ASSETS = {
   replyFinished: replyFinishedDefaultUrl
 };
 
-function DefaultPixelPet() {
+function PresetPixelPet({ presetId }) {
+  const presetClassName = `preset-${presetId || "default"}`;
   return (
-    <div className="pixel-pet-shell">
+    <div className={`pixel-girl-shell ${presetClassName}`}>
+      <div className="pixel-girl-back-hair"></div>
+      <div className="pixel-girl-hair-bob left"></div>
+      <div className="pixel-girl-hair-bob right"></div>
+      <div className="pixel-girl-ribbon left"></div>
+      <div className="pixel-girl-ribbon right"></div>
       <div className="pixel-pet-body">
-        <div className="pixel-pet-ears">
-          <span className="ear left"></span>
-          <span className="ear right"></span>
-        </div>
         <div className="pixel-pet-face">
           <span className="pixel-eye left"></span>
           <span className="pixel-eye right"></span>
@@ -49,9 +51,15 @@ function DefaultPixelPet() {
           <span className="pixel-blush left"></span>
           <span className="pixel-blush right"></span>
         </div>
-        <div className="pixel-pet-badge">CC</div>
+        <div className="pixel-girl-fringe"></div>
+        <div className="pixel-girl-collar"></div>
+        <div className="pixel-girl-badge">
+          {presetId === "moonlight" ? "ME" : presetId === "mint" ? "MN" : presetId === "sakura" ? "SK" : "CC"}
+        </div>
       </div>
-      <div className="pixel-pet-tail"></div>
+      <div className="pixel-girl-skirt"></div>
+      <div className="pixel-girl-sleeve left"></div>
+      <div className="pixel-girl-sleeve right"></div>
     </div>
   );
 }
@@ -61,7 +69,11 @@ export default function App() {
   const [bubble, setBubble] = useState("Idle");
   const [animationCycle, setAnimationCycle] = useState(0);
   const [appearance, setAppearance] = useState({
-    mode: "default",
+    mode: "preset",
+    presetId: "default",
+    presetLabel: "Default Pixel Pet",
+    motionModule: "sweet",
+    motionModuleLabel: "Sweet",
     sourceImageLabel: null,
     sourceDataUrl: null
   });
@@ -321,7 +333,7 @@ export default function App() {
       <div
         key={animationCycle}
         id="pet"
-        className={`state-${state} ${appearance.mode === "custom" ? "is-custom" : "is-default"}`}
+        className={`state-${state} ${appearance.mode === "custom" ? "is-custom" : "is-preset"} motion-${appearance.motionModule || "sweet"} preset-${appearance.presetId || "default"}`}
         title="Desktop Pet"
         onPointerDown={handlePointerDown}
         onContextMenu={handleContextMenu}
@@ -342,7 +354,7 @@ export default function App() {
           </div>
         ) : (
           <div ref={spriteRef}>
-            <DefaultPixelPet />
+            <PresetPixelPet presetId={appearance.presetId} />
           </div>
         )}
       </div>

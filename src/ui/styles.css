@@ -66,6 +66,7 @@ select {
 }
 
 .pixel-pet-shell,
+.pixel-girl-shell,
 .custom-pet-shell {
   position: relative;
   display: flex;
@@ -73,6 +74,15 @@ select {
   justify-content: center;
   min-width: 152px;
   min-height: 148px;
+}
+
+.pixel-girl-shell {
+  --hair-main: #d07a8c;
+  --hair-shadow: #8c465f;
+  --hair-shine: #f7c3d1;
+  --outfit-main: #fff5f7;
+  --outfit-accent: #f28aa2;
+  --badge-bg: #ffe08a;
 }
 
 .pixel-pet-body {
@@ -86,6 +96,15 @@ select {
     8px 8px 0 rgba(36, 21, 14, 0.15),
     inset 0 -6px 0 rgba(166, 92, 31, 0.22);
   image-rendering: pixelated;
+}
+
+.pixel-girl-shell .pixel-pet-body {
+  background:
+    linear-gradient(180deg, #fff9ec 0 18%, var(--outfit-main) 18% 56%, var(--outfit-accent) 56% 100%);
+  border-radius: 16px 16px 12px 12px;
+  box-shadow:
+    8px 8px 0 rgba(36, 21, 14, 0.12),
+    inset 0 -8px 0 rgba(40, 22, 14, 0.08);
 }
 
 .pixel-pet-body::before,
@@ -104,6 +123,22 @@ select {
 
 .pixel-pet-body::after {
   right: 20px;
+}
+
+.pixel-girl-shell .pixel-pet-body::before,
+.pixel-girl-shell .pixel-pet-body::after {
+  bottom: -12px;
+  width: 20px;
+  height: 18px;
+  border-radius: 0 0 6px 6px;
+}
+
+.pixel-girl-shell .pixel-pet-body::before {
+  left: 22px;
+}
+
+.pixel-girl-shell .pixel-pet-body::after {
+  right: 22px;
 }
 
 .pixel-pet-ears {
@@ -136,12 +171,26 @@ select {
   animation: blink 5s infinite steps(2);
 }
 
+.pixel-girl-shell .pixel-eye {
+  top: 34px;
+  width: 10px;
+  height: 18px;
+}
+
 .pixel-eye.left {
   left: 20px;
 }
 
 .pixel-eye.right {
   right: 20px;
+}
+
+.pixel-girl-shell .pixel-eye.left {
+  left: 28px;
+}
+
+.pixel-girl-shell .pixel-eye.right {
+  right: 28px;
 }
 
 .pixel-mouth {
@@ -154,6 +203,12 @@ select {
   border-left: 4px solid var(--ink);
   border-right: 4px solid var(--ink);
   border-bottom: 4px solid var(--ink);
+}
+
+.pixel-girl-shell .pixel-mouth {
+  bottom: 18px;
+  width: 18px;
+  height: 8px;
 }
 
 .pixel-blush {
@@ -172,6 +227,11 @@ select {
   right: 6px;
 }
 
+.pixel-girl-shell .pixel-blush {
+  top: 52px;
+  width: 12px;
+}
+
 .pixel-pet-badge {
   position: absolute;
   right: -8px;
@@ -185,6 +245,23 @@ select {
   border: 4px solid var(--ink);
   color: #683112;
   font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.pixel-girl-badge {
+  position: absolute;
+  right: -8px;
+  top: -8px;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 28px;
+  padding-top: 2px;
+  background: var(--badge-bg);
+  border: 4px solid var(--ink);
+  color: #683112;
+  font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.04em;
 }
@@ -211,6 +288,142 @@ select {
   height: 18px;
   background: #ffda9b;
   border: 4px solid var(--ink);
+}
+
+.pixel-girl-back-hair {
+  position: absolute;
+  left: 22px;
+  top: 2px;
+  width: 108px;
+  height: 98px;
+  background:
+    linear-gradient(180deg, var(--hair-shine) 0 16%, var(--hair-main) 16% 68%, var(--hair-shadow) 68% 100%);
+  border: 4px solid var(--ink);
+  border-radius: 26px 26px 18px 18px;
+  z-index: -2;
+}
+
+.pixel-girl-hair-bob {
+  position: absolute;
+  top: 34px;
+  width: 24px;
+  height: 48px;
+  background:
+    linear-gradient(180deg, var(--hair-main) 0 72%, var(--hair-shadow) 72% 100%);
+  border: 4px solid var(--ink);
+}
+
+.pixel-girl-hair-bob.left {
+  left: 10px;
+  border-radius: 10px 0 12px 12px;
+}
+
+.pixel-girl-hair-bob.right {
+  right: 10px;
+  border-radius: 0 10px 12px 12px;
+}
+
+.pixel-girl-fringe {
+  position: absolute;
+  left: 14px;
+  top: 6px;
+  width: 74px;
+  height: 30px;
+  background:
+    linear-gradient(180deg, var(--hair-shine) 0 24%, var(--hair-main) 24% 100%);
+  border: 4px solid var(--ink);
+  border-bottom: none;
+  border-radius: 18px 18px 0 0;
+}
+
+.pixel-girl-ribbon {
+  position: absolute;
+  top: 10px;
+  width: 18px;
+  height: 18px;
+  background: var(--outfit-accent);
+  border: 4px solid var(--ink);
+  transform: rotate(45deg);
+}
+
+.pixel-girl-ribbon.left {
+  left: 16px;
+}
+
+.pixel-girl-ribbon.right {
+  right: 16px;
+}
+
+.pixel-girl-collar {
+  position: absolute;
+  left: 24px;
+  bottom: 28px;
+  width: 54px;
+  height: 16px;
+  background:
+    linear-gradient(180deg, #fff4fa 0 50%, #ffd7e4 50% 100%);
+  border: 4px solid var(--ink);
+  border-radius: 0 0 10px 10px;
+}
+
+.pixel-girl-skirt {
+  position: absolute;
+  left: 34px;
+  bottom: 10px;
+  width: 86px;
+  height: 28px;
+  background:
+    linear-gradient(180deg, var(--outfit-accent) 0 34%, color-mix(in srgb, var(--outfit-accent) 72%, #ffffff 28%) 34% 100%);
+  border: 4px solid var(--ink);
+  border-top: none;
+  clip-path: polygon(8% 0, 92% 0, 100% 100%, 0 100%);
+  z-index: -1;
+}
+
+.pixel-girl-sleeve {
+  position: absolute;
+  top: 88px;
+  width: 18px;
+  height: 26px;
+  background: var(--outfit-main);
+  border: 4px solid var(--ink);
+}
+
+.pixel-girl-sleeve.left {
+  left: 14px;
+  transform: rotate(8deg);
+}
+
+.pixel-girl-sleeve.right {
+  right: 14px;
+  transform: rotate(-8deg);
+}
+
+.preset-sakura.pixel-girl-shell {
+  --hair-main: #e28aa0;
+  --hair-shadow: #9b5166;
+  --hair-shine: #ffd4df;
+  --outfit-main: #fff4f7;
+  --outfit-accent: #ef8aa9;
+  --badge-bg: #ffe28d;
+}
+
+.preset-mint.pixel-girl-shell {
+  --hair-main: #69c6a8;
+  --hair-shadow: #327867;
+  --hair-shine: #c8fff0;
+  --outfit-main: #f3fffb;
+  --outfit-accent: #59cbb1;
+  --badge-bg: #d8fff0;
+}
+
+.preset-moonlight.pixel-girl-shell {
+  --hair-main: #6a6fcf;
+  --hair-shadow: #34397b;
+  --hair-shine: #d5d9ff;
+  --outfit-main: #f4f1ff;
+  --outfit-accent: #9ea0f4;
+  --badge-bg: #f5d9ff;
 }
 
 .custom-pet-shell {
@@ -293,13 +506,35 @@ select {
   animation: tail-swing 220ms steps(3) 6;
 }
 
+.state-reply .pixel-girl-ribbon,
+.state-reply .pixel-girl-hair-bob {
+  animation: ribbon-flutter 260ms steps(3) 5;
+}
+
 .state-idle .pixel-pet-shell,
+.state-idle .pixel-girl-shell,
 .state-idle .custom-pet-shell {
   animation: idle-float 2.4s infinite steps(6);
 }
 
 .state-idle .pixel-pet-tail {
   animation: tail-swing 1.6s infinite steps(4);
+}
+
+.state-idle.motion-peppy .pixel-girl-shell {
+  animation: peppy-float 1.6s infinite steps(5);
+}
+
+.state-idle.motion-shy .pixel-girl-shell {
+  animation: shy-sway 2.8s infinite steps(6);
+}
+
+.state-click.motion-peppy .pixel-girl-shell {
+  animation: pet-hop 260ms steps(4);
+}
+
+.state-click.motion-shy .pixel-girl-shell {
+  animation: shy-tilt 240ms steps(3);
 }
 
 @keyframes pet-bounce {
@@ -318,6 +553,37 @@ select {
   0% { transform: rotate(10deg); }
   50% { transform: rotate(-12deg); }
   100% { transform: rotate(10deg); }
+}
+
+@keyframes ribbon-flutter {
+  0% { transform: translateY(0) rotate(45deg); }
+  50% { transform: translateY(-3px) rotate(35deg); }
+  100% { transform: translateY(0) rotate(45deg); }
+}
+
+@keyframes peppy-float {
+  0% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-8px) scale(1.02); }
+  100% { transform: translateY(0) scale(1); }
+}
+
+@keyframes shy-sway {
+  0% { transform: translateY(0) rotate(0deg); }
+  35% { transform: translateY(-2px) rotate(-2deg); }
+  70% { transform: translateY(0) rotate(2deg); }
+  100% { transform: translateY(0) rotate(0deg); }
+}
+
+@keyframes pet-hop {
+  0% { transform: translateY(0) scale(1); }
+  40% { transform: translateY(-14px) scale(1.03); }
+  100% { transform: translateY(0) scale(1); }
+}
+
+@keyframes shy-tilt {
+  0% { transform: rotate(0deg); }
+  50% { transform: rotate(-5deg); }
+  100% { transform: rotate(0deg); }
 }
 
 @keyframes shadow-breathe {
