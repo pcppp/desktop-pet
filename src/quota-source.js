@@ -201,7 +201,7 @@ function buildBucket(label, usedPercent, resetsAt) {
     ? `5小时 limit ${titlePercent}`
     : `Weekly Limits ${titlePercent}`;
   const menuSubtitle = label === "Current session"
-    ? `Resets in ${menuResetsAt}`
+    ? `Resets at ${menuResetsAt}`
     : `Resets ${menuResetsAt}`;
 
   return {
