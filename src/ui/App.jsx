@@ -136,17 +136,9 @@ export default function App() {
     sourceDataUrl: null
   });
   const [customSpriteUrl, setCustomSpriteUrl] = useState(null);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [menuPosition, setMenuPosition] = useState({ x: 24, y: 24 });
-  const [isImporting, setIsImporting] = useState(false);
   const [appearanceError, setAppearanceError] = useState("");
-  const [quotaState, setQuotaState] = useState({
-    quota: null,
-    isRefreshing: false
-  });
   const latestAppearanceJobRef = useRef(0);
   const lastAppearanceKeyRef = useRef("");
-  const menuRef = useRef(null);
 
   const showState = useEffectEvent((nextState, text, duration = 2200) => {
     setState(nextState);
@@ -216,10 +208,6 @@ export default function App() {
       } else if (payload.trigger === "quota-updated") {
         showState("reply", "Quota refreshed");
       }
-
-      void window.petBridge.getQuotaSnapshot().then((snapshot) => {
-        setQuotaState(snapshot);
-      });
       scheduleIdle();
     });
 
@@ -227,9 +215,6 @@ export default function App() {
       void syncAppearance(payload);
     });
 
-    void window.petBridge.getQuotaSnapshot().then((snapshot) => {
-      setQuotaState(snapshot);
-    });
     void syncAppearance();
     scheduleIdle();
 
@@ -289,102 +274,15 @@ export default function App() {
 
   const handleContextMenu = (event) => {
     event.preventDefault();
-    setMenuPosition({
-      x: Math.max(8, Math.min(event.clientX, window.innerWidth - 196)),
-      y: Math.max(8, Math.min(event.clientY, window.innerHeight - 236))
+    const rect = event.currentTarget.getBoundingClientRect();
+    window.petBridge.openContextMenu({
+      x: rect.right - 4,
+      y: rect.top + (rect.height / 2)
     });
-    setMenuOpen(true);
-    setQuotaState((current) => ({
-      ...current,
-      isRefreshing: true
-    }));
-    void window.petBridge.syncQuota()
-      .then((snapshot) => {
-        setQuotaState(snapshot);
-      })
-      .catch(() => {
-        setQuotaState((current) => ({ ...current, isRefreshing: false }));
-      });
     scheduleIdle();
   };
 
-  const handleChooseAppearance = async () => {
-    setIsImporting(true);
-    setAppearanceError("");
-
-    try {
-      const nextAppearance = await window.petBridge.chooseCustomAppearance();
-      if (nextAppearance) {
-        showState("reply", "Custom pet imported", 1800);
-        setMenuOpen(false);
-      }
-    } catch (error) {
-      setAppearanceError(error.message || "Unable to import image");
-    } finally {
-      setIsImporting(false);
-      scheduleIdle();
-    }
-  };
-
-  const handleResetAppearance = async () => {
-    setAppearanceError("");
-
-    try {
-      await window.petBridge.resetAppearance();
-      showState("click", "Default pixel pet restored", 1800);
-      setMenuOpen(false);
-    } catch (error) {
-      setAppearanceError(error.message || "Unable to reset image");
-    } finally {
-      scheduleIdle();
-    }
-  };
-
-  const handleSyncQuota = async () => {
-    setQuotaState((current) => ({ ...current, isRefreshing: true }));
-
-    try {
-      const snapshot = await window.petBridge.syncQuota();
-      setQuotaState(snapshot);
-      showState("reply", "Quota refreshed", 1600);
-    } catch (error) {
-      setQuotaState((current) => ({ ...current, isRefreshing: false }));
-      setAppearanceError(error.message || "Unable to sync quota");
-    } finally {
-      scheduleIdle();
-    }
-  };
-
-  useEffect(() => {
-    if (!menuOpen) {
-      return undefined;
-    }
-
-    const onPointerDown = (event) => {
-      if (!menuRef.current || menuRef.current.contains(event.target)) {
-        return;
-      }
-
-      setMenuOpen(false);
-    };
-
-    const onKeyDown = (event) => {
-      if (event.key === "Escape") {
-        setMenuOpen(false);
-      }
-    };
-
-    window.addEventListener("pointerdown", onPointerDown);
-    window.addEventListener("keydown", onKeyDown);
-
-    return () => {
-      window.removeEventListener("pointerdown", onPointerDown);
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [menuOpen]);
-
   const pixelScale = appearance.mode === "custom" ? clamp(4.6, 3.8, 5.2) : 1;
-  const quota = quotaState.quota;
 
   return (
     <main id="pet-root">
@@ -414,74 +312,7 @@ export default function App() {
       <div id="bubble" className={bubble ? "visible" : ""}>
         {bubble}
       </div>
-      {menuOpen ? (
-        <section
-          id="pet-menu"
-          ref={menuRef}
-          style={{ left: `${menuPosition.x}px`, top: `${menuPosition.y}px` }}
-        >
-          <div className="panel-card menu-card">
-            <div className="panel-title">Pet Menu</div>
-            <div className="panel-section">
-              <div className="panel-label">Appearance</div>
-              <div className="panel-text">
-                {appearance.mode === "custom"
-                  ? `Custom sprite: ${appearance.sourceImageLabel || "Imported image"}`
-                  : "Default built-in pixel sprite"}
-              </div>
-              <div className="panel-actions">
-                <button type="button" className="panel-button" disabled={isImporting} onClick={handleChooseAppearance}>
-                  {isImporting ? "Importing..." : "Import Image"}
-                </button>
-                <button
-                  type="button"
-                  className="panel-button secondary"
-                  disabled={appearance.mode !== "custom"}
-                  onClick={handleResetAppearance}
-                >
-                  Reset
-                </button>
-              </div>
-              <div className="panel-tip">Images are auto-converted into a pixel-style sprite.</div>
-            </div>
-            <div className="panel-section">
-              <div className="panel-label">Claude Quota</div>
-              <div className="panel-text">
-                {quotaState.isRefreshing ? "Syncing latest usage..." : "Showing cached usage instantly."}
-              </div>
-              {quota ? (
-                <div className="quota-grid">
-                  <div className="quota-row">
-                    <span>5h</span>
-                    <span>{quota.fiveHour.display}</span>
-                  </div>
-                  <div className="quota-row subtle">
-                    <span>Reset</span>
-                    <span>{quota.fiveHour.resetsAt}</span>
-                  </div>
-                  <div className="quota-row">
-                    <span>Week</span>
-                    <span>{quota.weekly.display}</span>
-                  </div>
-                  <div className="quota-row subtle">
-                    <span>Reset</span>
-                    <span>{quota.weekly.resetsAt}</span>
-                  </div>
-                </div>
-              ) : null}
-              <div className="panel-actions">
-                <button type="button" className="panel-button" disabled={quotaState.isRefreshing} onClick={handleSyncQuota}>
-                  {quotaState.isRefreshing ? "Syncing..." : "Refresh Quota"}
-                </button>
-                <button type="button" className="panel-button secondary" onClick={() => setMenuOpen(false)}>
-                  Close
-                </button>
-              </div>
-            </div>
-            {appearanceError ? <div className="panel-error">{appearanceError}</div> : null}
-          </div>
-        </section>
-      ) : null}
+      {appearanceError ? <div id="appearance-error">{appearanceError}</div> : null}
     </main>
   );
 }

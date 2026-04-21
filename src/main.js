@@ -91,7 +91,11 @@ function buildContextMenu() {
     {
       label: "Choose Custom Pet Image",
       click: async () => {
-        await chooseCustomAppearance();
+        try {
+          await chooseCustomAppearance();
+        } catch (error) {
+          console.error("Failed to choose custom pet image:", error);
+        }
       }
     },
     {
@@ -203,6 +207,25 @@ async function chooseCustomAppearance() {
 
   const nextAppearance = saveCustomAppearance(dataDir, result.filePaths[0]);
   return applyAppearance(nextAppearance);
+}
+
+function getContextMenuAnchor(anchor) {
+  const fallback = {
+    x: WINDOW_SIZE - 8,
+    y: Math.round(WINDOW_SIZE / 2)
+  };
+
+  if (!anchor || typeof anchor !== "object") {
+    return fallback;
+  }
+
+  const x = Number.isFinite(anchor.x) ? Math.round(anchor.x) : fallback.x;
+  const y = Number.isFinite(anchor.y) ? Math.round(anchor.y) : fallback.y;
+
+  return {
+    x: Math.min(WINDOW_SIZE - 4, Math.max(0, x)),
+    y: Math.min(WINDOW_SIZE - 4, Math.max(0, y))
+  };
 }
 
 function createWindow() {
@@ -374,27 +397,27 @@ ipcMain.handle("pet:get-appearance", () => {
   return toRendererAppearance(dataDir, currentAppearance);
 });
 
-ipcMain.handle("pet:get-quota-snapshot", () => {
-  return {
-    quota: currentQuota,
-    isRefreshing: isQuotaRefreshing
-  };
-});
-
-ipcMain.handle("pet:sync-quota", async () => {
-  await syncQuotaFromClaudeStatus({ animate: false });
-  return {
-    quota: currentQuota,
-    isRefreshing: isQuotaRefreshing
-  };
-});
-
 ipcMain.handle("pet:choose-custom-appearance", async () => {
   return chooseCustomAppearance();
 });
 
 ipcMain.handle("pet:reset-appearance", () => {
   return applyAppearance(resetAppearance(dataDir));
+});
+
+ipcMain.on("pet:open-context-menu", (_event, anchor) => {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+
+  const menu = buildContextMenu();
+  const position = getContextMenuAnchor(anchor);
+  menu.popup({
+    window: mainWindow,
+    x: position.x,
+    y: position.y
+  });
+  void syncQuotaFromClaudeStatus({ animate: false });
 });
 
 ipcMain.on("pet:drag-move", (_event, offset) => {

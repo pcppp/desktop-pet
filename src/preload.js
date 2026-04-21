@@ -15,14 +15,11 @@ contextBridge.exposeInMainWorld("petBridge", {
       ipcRenderer.removeListener("pet:appearance", listener);
     };
   },
+  openContextMenu: (anchor) => {
+    ipcRenderer.send("pet:open-context-menu", anchor);
+  },
   getAppearance: () => {
     return ipcRenderer.invoke("pet:get-appearance");
-  },
-  getQuotaSnapshot: () => {
-    return ipcRenderer.invoke("pet:get-quota-snapshot");
-  },
-  syncQuota: () => {
-    return ipcRenderer.invoke("pet:sync-quota");
   },
   chooseCustomAppearance: () => {
     return ipcRenderer.invoke("pet:choose-custom-appearance");
