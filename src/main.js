@@ -20,7 +20,8 @@ const {
   readMenuSettings,
   updateMenuSettings,
   normalizeReplySourceMode,
-  normalizeReplyBubbleSize
+  normalizeReplyBubbleSize,
+  normalizeTimeZonePreference
 } = require("./menu-settings");
 const {
   ensureSoundStorage,
@@ -49,6 +50,43 @@ const REPLY_BUBBLE_MARGIN = 8;
 const REPLY_BUBBLE_TOP_OFFSET = 14;
 const REPLY_BUBBLE_HIDE_DELAY_MS = 8000;
 const REPLY_BUBBLE_HOVER_LEAVE_HIDE_DELAY_MS = 3000;
+const TIME_ZONE_OPTIONS = {
+  system: {
+    label: "System",
+    labelZh: "跟随系统",
+    timeZone: null
+  },
+  china: {
+    label: "China",
+    labelZh: "中国",
+    timeZone: "Asia/Shanghai"
+  },
+  japan: {
+    label: "Japan",
+    labelZh: "日本",
+    timeZone: "Asia/Tokyo"
+  },
+  uk: {
+    label: "UK",
+    labelZh: "英国",
+    timeZone: "Europe/London"
+  },
+  "us-east": {
+    label: "US East",
+    labelZh: "美国东部",
+    timeZone: "America/New_York"
+  },
+  "us-west": {
+    label: "US West",
+    labelZh: "美国西部",
+    timeZone: "America/Los_Angeles"
+  },
+  utc: {
+    label: "UTC",
+    labelZh: "世界标准时",
+    timeZone: "UTC"
+  }
+};
 
 let mainWindow;
 let replyBubbleWindow;
@@ -115,6 +153,254 @@ function getReplyBubbleSize() {
   return REPLY_BUBBLE_SIZE_MAP[key] || REPLY_BUBBLE_SIZE_MAP.medium;
 }
 
+function isChineseUiEnabled() {
+  return normalizeTimeZonePreference(currentMenuSettings && currentMenuSettings.timeZonePreference) === "china";
+}
+
+function getUiStrings() {
+  if (isChineseUiEnabled()) {
+    return {
+      systemTimeZone: "系统时区",
+      fiveHourTitle: (percentText) => `5小时限额 ${percentText}`,
+      fiveHourFallbackTitle: "5小时限额 --",
+      fiveHourSubtitleUnknown: "重置时间未知",
+      fiveHourSubtitle: (hours, minutes) => `将在 ${hours} 小时 ${String(minutes).padStart(2, "0")} 分钟后重置`,
+      fiveHourSubtitleZero: "将在 0 小时 00 分钟后重置",
+      weeklyTitle: (percentText) => `每周限额 ${percentText}`,
+      weeklyFallbackTitle: "每周限额 --",
+      weeklySubtitleUnknown: "重置时间未知",
+      weeklySubtitle: (text) => `将于 ${text} 重置`,
+      sourceClaude: "Claude /status",
+      sourceCache: "缓存回退",
+      quotaSyncLoading: "额度同步中...",
+      quotaSyncReady: "额度缓存就绪",
+      settings: "设置",
+      showFiveHourUsage: "在设置中显示 5 小时用量",
+      showWeeklyUsage: "在设置中显示每周用量",
+      showQuotaSource: "在设置中显示额度来源",
+      showUpdatedAt: "在设置中显示更新时间",
+      showPetImage: "在设置中显示桌宠形象",
+      replySource: "回复来源",
+      replySourceValue: {
+        claude: "Claude",
+        codex: "Codex",
+        both: "同时监听"
+      },
+      replyBubbleSize: "气泡框大小",
+      replyBubbleSizeValue: {
+        small: "小",
+        medium: "中",
+        large: "大",
+        xlarge: "超大"
+      },
+      timeZone: "时区",
+      timeZoneValue: (label) => `时区：${label}`,
+      petImageCurrent: (label) => `桌宠形象：${label || "自定义"}`,
+      petImageDefault: "桌宠形象：默认像素宠物",
+      chooseCustomPetImage: "选择自定义桌宠图片",
+      resetPetImage: "重置桌宠图片",
+      sound: "声音",
+      muteAll: "全部静音",
+      masterVolume: (volume) => `总音量：${volume}%`,
+      useDefault: "使用默认",
+      chooseCustomAudio: "选择自定义音频",
+      mute: "静音",
+      soundItemLabel: (label, current) => `${label}：${current}`,
+      soundLabels: {
+        click: "点击",
+        replyFinished: "回复完成",
+        drag: "拖拽",
+        idle: "待机"
+      },
+      soundFallbacks: {
+        click: "默认点击音效",
+        replyFinished: "默认完成音效",
+        drag: "默认拖拽音效",
+        idle: "默认待机音效"
+      },
+      syncClaudeStatus: "同步 Claude 状态",
+      triggerReplyFinished: "触发回复完成",
+      quit: "退出",
+      fiveHourUsageSummary: (value) => `5 小时用量：${value}`,
+      weeklyUsageSummary: (value) => `每周用量：${value}`,
+      quotaSourceSummary: (value) => `额度来源：${value}`,
+      updatedAtSummary: (value) => `更新时间：${value}`
+    };
+  }
+
+  return {
+    systemTimeZone: "System Time Zone",
+    fiveHourTitle: (percentText) => `5小时 limit ${percentText}`,
+    fiveHourFallbackTitle: "5小时 limit --",
+    fiveHourSubtitleUnknown: "Resets in Unknown",
+    fiveHourSubtitle: (hours, minutes) => `Resets in ${hours} hr ${String(minutes).padStart(2, "0")} min`,
+    fiveHourSubtitleZero: "Resets in 0 hr 00 min",
+    weeklyTitle: (percentText) => `Weekly Limits ${percentText}`,
+    weeklyFallbackTitle: "Weekly Limits --",
+    weeklySubtitleUnknown: "Resets Unknown",
+    weeklySubtitle: (text) => `Resets ${text}`,
+    sourceClaude: "Claude /status",
+    sourceCache: "Cached fallback",
+    quotaSyncLoading: "Quota Sync: Loading...",
+    quotaSyncReady: "Quota Sync: Ready",
+    settings: "Settings",
+    showFiveHourUsage: "Show 5h Usage In Settings",
+    showWeeklyUsage: "Show Weekly Usage In Settings",
+    showQuotaSource: "Show Quota Source In Settings",
+    showUpdatedAt: "Show Updated Time In Settings",
+    showPetImage: "Show Pet Image In Settings",
+    replySource: "Reply Source",
+    replySourceValue: {
+      claude: "Claude",
+      codex: "Codex",
+      both: "Both"
+    },
+    replyBubbleSize: "Reply Bubble Size",
+    replyBubbleSizeValue: {
+      small: "Small",
+      medium: "Medium",
+      large: "Large",
+      xlarge: "XLarge"
+    },
+    timeZone: "Time Zone",
+    timeZoneValue: (label) => `Time Zone: ${label}`,
+    petImageCurrent: (label) => `Pet Image: ${label || "Custom"}`,
+    petImageDefault: "Pet Image: Default Pixel Pet",
+    chooseCustomPetImage: "Choose Custom Pet Image",
+    resetPetImage: "Reset Pet Image",
+    sound: "Sound",
+    muteAll: "Mute All",
+    masterVolume: (volume) => `Master Volume: ${volume}%`,
+    useDefault: "Use Default",
+    chooseCustomAudio: "Choose Custom Audio",
+    mute: "Mute",
+    soundItemLabel: (label, current) => `${label}: ${current}`,
+    soundLabels: {
+      click: "Click",
+      replyFinished: "Reply Finished",
+      drag: "Drag",
+      idle: "Idle"
+    },
+    soundFallbacks: {
+      click: "Default Click",
+      replyFinished: "Default Reply",
+      drag: "Default Drag",
+      idle: "Default Idle"
+    },
+    syncClaudeStatus: "Sync Claude Status",
+    triggerReplyFinished: "Trigger Reply Finished",
+    quit: "Quit",
+    fiveHourUsageSummary: (value) => `5h Usage: ${value}`,
+    weeklyUsageSummary: (value) => `Week Usage: ${value}`,
+    quotaSourceSummary: (value) => `Quota Source: ${value}`,
+    updatedAtSummary: (value) => `Updated: ${value}`
+  };
+}
+
+function getSystemTimeZone() {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+}
+
+function getSelectedTimeZonePreference() {
+  return normalizeTimeZonePreference(currentMenuSettings && currentMenuSettings.timeZonePreference);
+}
+
+function getConfiguredTimeZone() {
+  const preference = getSelectedTimeZonePreference();
+  const option = TIME_ZONE_OPTIONS[preference] || TIME_ZONE_OPTIONS.system;
+  return option.timeZone || getSystemTimeZone();
+}
+
+function getTimeZoneOptionLabel(preference) {
+  const option = TIME_ZONE_OPTIONS[preference] || TIME_ZONE_OPTIONS.system;
+  return isChineseUiEnabled() ? option.labelZh : option.label;
+}
+
+function detectResetTimeZone(resetsAt) {
+  const match = String(resetsAt || "").match(/\(([A-Za-z_]+(?:\/[A-Za-z_]+)?)\)/);
+  if (!match) {
+    return null;
+  }
+
+  const zone = match[1];
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: zone }).format(new Date());
+    return zone;
+  } catch {
+    return null;
+  }
+}
+
+function getTimeZoneDateParts(date, timeZone) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  }).formatToParts(date).reduce((accumulator, part) => {
+    if (part.type !== "literal") {
+      accumulator[part.type] = Number(part.value);
+    }
+    return accumulator;
+  }, {});
+}
+
+function getNextCalendarDayParts(year, month, day) {
+  const nextDate = new Date(Date.UTC(year, month - 1, day + 1, 12, 0, 0));
+  return {
+    year: nextDate.getUTCFullYear(),
+    month: nextDate.getUTCMonth() + 1,
+    day: nextDate.getUTCDate()
+  };
+}
+
+function zonedDateTimeToUtcDate(timeZone, year, month, day, hour, minute) {
+  let utcMs = Date.UTC(year, month - 1, day, hour, minute, 0, 0);
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const actualParts = getTimeZoneDateParts(new Date(utcMs), timeZone);
+    const desiredUtcComparable = Date.UTC(year, month - 1, day, hour, minute, 0, 0);
+    const actualUtcComparable = Date.UTC(
+      actualParts.year,
+      actualParts.month - 1,
+      actualParts.day,
+      actualParts.hour,
+      actualParts.minute,
+      0,
+      0
+    );
+    const diffMs = desiredUtcComparable - actualUtcComparable;
+
+    if (diffMs === 0) {
+      break;
+    }
+
+    utcMs += diffMs;
+  }
+
+  return new Date(utcMs);
+}
+
+function describeSoundEntryLocalized(entry, fallbackDefaultLabel) {
+  if (!isChineseUiEnabled()) {
+    return describeSoundEntry(entry, fallbackDefaultLabel);
+  }
+
+  if (!entry || entry.mode === "silent") {
+    return "已静音";
+  }
+
+  if (entry.mode === "custom") {
+    return `自定义：${entry.sourceAudioLabel || "音频文件"}`;
+  }
+
+  return fallbackDefaultLabel;
+}
+
 function applySoundSettings(nextSoundSettings) {
   currentSoundSettings = nextSoundSettings;
   refreshTray();
@@ -144,17 +430,18 @@ async function chooseCustomSound(soundKey) {
 }
 
 function buildSoundMenuItem(label, soundKey, fallbackLabel) {
+  const strings = getUiStrings();
   return {
-    label: `${label}: ${describeSoundEntry(currentSoundSettings[soundKey], fallbackLabel)}`,
+    label: strings.soundItemLabel(label, describeSoundEntryLocalized(currentSoundSettings[soundKey], fallbackLabel)),
     submenu: [
       {
-        label: "Use Default",
+        label: strings.useDefault,
         click: () => {
           applySoundSettings(setSoundMode(dataDir, soundKey, "default"));
         }
       },
       {
-        label: "Choose Custom Audio",
+        label: strings.chooseCustomAudio,
         click: async () => {
           try {
             await chooseCustomSound(soundKey);
@@ -164,7 +451,7 @@ function buildSoundMenuItem(label, soundKey, fallbackLabel) {
         }
       },
       {
-        label: "Mute",
+        label: strings.mute,
         click: () => {
           applySoundSettings(setSoundMode(dataDir, soundKey, "silent"));
         }
@@ -174,9 +461,10 @@ function buildSoundMenuItem(label, soundKey, fallbackLabel) {
 }
 
 function buildSoundMenu() {
+  const strings = getUiStrings();
   return [
     {
-      label: "Mute All",
+      label: strings.muteAll,
       type: "checkbox",
       checked: currentSoundSettings.masterMuted === true,
       click: (item) => {
@@ -184,7 +472,7 @@ function buildSoundMenu() {
       }
     },
     {
-      label: `Master Volume: ${currentSoundSettings.masterVolume}%`,
+      label: strings.masterVolume(currentSoundSettings.masterVolume),
       submenu: [100, 85, 75, 60, 45, 30, 15, 0].map((volume) => ({
         label: `${volume}%`,
         type: "radio",
@@ -195,10 +483,10 @@ function buildSoundMenu() {
       }))
     },
     { type: "separator" },
-    buildSoundMenuItem("Click", "click", "Default Click"),
-    buildSoundMenuItem("Reply Finished", "replyFinished", "Default Reply"),
-    buildSoundMenuItem("Drag", "drag", "Default Drag"),
-    buildSoundMenuItem("Idle", "idle", "Default Idle")
+    buildSoundMenuItem(strings.soundLabels.click, "click", strings.soundFallbacks.click),
+    buildSoundMenuItem(strings.soundLabels.replyFinished, "replyFinished", strings.soundFallbacks.replyFinished),
+    buildSoundMenuItem(strings.soundLabels.drag, "drag", strings.soundFallbacks.drag),
+    buildSoundMenuItem(strings.soundLabels.idle, "idle", strings.soundFallbacks.idle)
   ];
 }
 
@@ -223,76 +511,50 @@ function parseFiveHourResetTime(resetsAt) {
     hour = 0;
   }
 
-  const shanghaiParts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Shanghai",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false
-  }).formatToParts(now).reduce((accumulator, part) => {
-    if (part.type !== "literal") {
-      accumulator[part.type] = part.value;
-    }
-    return accumulator;
-  }, {});
+  const effectiveTimeZone = detectResetTimeZone(resetsAt) || getConfiguredTimeZone();
+  const zonedNow = getTimeZoneDateParts(now, effectiveTimeZone);
 
-  const year = Number(shanghaiParts.year);
-  const month = Number(shanghaiParts.month);
-  const day = Number(shanghaiParts.day);
-  const currentShanghaiHour = Number(shanghaiParts.hour);
-  const currentShanghaiMinute = Number(shanghaiParts.minute);
+  const year = zonedNow.year;
+  const month = zonedNow.month;
+  const day = zonedNow.day;
+  const currentHour = zonedNow.hour;
+  const currentMinute = zonedNow.minute;
 
   let targetYear = year;
   let targetMonth = month;
   let targetDay = day;
 
-  if (hour < currentShanghaiHour || (hour === currentShanghaiHour && minute <= currentShanghaiMinute)) {
-    const nextDayUtcMs = Date.UTC(year, month - 1, day + 1, 0, 0, 0);
-    const nextDayParts = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "Asia/Shanghai",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit"
-    }).formatToParts(new Date(nextDayUtcMs)).reduce((accumulator, part) => {
-      if (part.type !== "literal") {
-        accumulator[part.type] = part.value;
-      }
-      return accumulator;
-    }, {});
-
-    targetYear = Number(nextDayParts.year);
-    targetMonth = Number(nextDayParts.month);
-    targetDay = Number(nextDayParts.day);
+  if (hour < currentHour || (hour === currentHour && minute <= currentMinute)) {
+    const nextDay = getNextCalendarDayParts(year, month, day);
+    targetYear = nextDay.year;
+    targetMonth = nextDay.month;
+    targetDay = nextDay.day;
   }
 
-  const targetUtcMs = Date.UTC(targetYear, targetMonth - 1, targetDay, hour - 8, minute, 0, 0);
-  const target = new Date(targetUtcMs);
-
-  return target;
+  return zonedDateTimeToUtcDate(effectiveTimeZone, targetYear, targetMonth, targetDay, hour, minute);
 }
 
 function formatFiveHourResetSubtitle(resetsAt) {
+  const strings = getUiStrings();
   const target = parseFiveHourResetTime(resetsAt);
   if (!target) {
-    return "Resets in Unknown";
+    return strings.fiveHourSubtitleUnknown;
   }
 
   const diffMs = target.getTime() - Date.now();
   if (diffMs <= 0) {
-    return "Resets in 0 hr 00 min";
+    return strings.fiveHourSubtitleZero;
   }
 
   const totalMinutes = Math.ceil(diffMs / 60000);
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
-  return `Resets in ${hours} hr ${String(minutes).padStart(2, "0")} min`;
+  return strings.fiveHourSubtitle(hours, minutes);
 }
 
 function formatWeeklyResetSubtitle(menuSubtitle, resetsAt) {
-  if (typeof menuSubtitle === "string" && menuSubtitle.trim()) {
+  const strings = getUiStrings();
+  if (typeof menuSubtitle === "string" && menuSubtitle.trim() && !isChineseUiEnabled()) {
     return menuSubtitle;
   }
 
@@ -303,10 +565,14 @@ function formatWeeklyResetSubtitle(menuSubtitle, resetsAt) {
     .replace(/\s+/g, " ")
     .trim();
 
-  return normalized ? `Resets ${normalized}` : "Resets Unknown";
+  return normalized ? strings.weeklySubtitle(normalized) : strings.weeklySubtitleUnknown;
 }
 
 function buildContextMenu() {
+  const strings = getUiStrings();
+  const timeZonePreference = getSelectedTimeZonePreference();
+  const replySourceMode = normalizeReplySourceMode(currentMenuSettings.replySourceMode);
+  const replyBubbleSize = normalizeReplyBubbleSize(currentMenuSettings.replyBubbleSize);
   const weekly = currentQuota.weekly.display;
   const fiveHour = currentQuota.fiveHour.display;
   const fiveHourSubtitle = formatFiveHourResetSubtitle(currentQuota.fiveHour.resetsAt);
@@ -315,66 +581,78 @@ function buildContextMenu() {
     currentQuota.weekly.resetsAt
   );
   const source = currentQuota.source === "claude-status"
-    ? "Claude /status"
-    : "Cached fallback";
+    ? strings.sourceClaude
+    : strings.sourceCache;
   const loadingLabel = isQuotaRefreshing
-    ? "Quota Sync: Loading..."
-    : "Quota Sync: Ready";
+    ? strings.quotaSyncLoading
+    : strings.quotaSyncReady;
   const settingsItems = [{ label: loadingLabel, enabled: false }];
 
   if (currentMenuSettings.showFiveHourUsageInMainMenu) {
-    settingsItems.push({ label: `5h Usage: ${fiveHour}`, enabled: false });
+    settingsItems.push({ label: strings.fiveHourUsageSummary(fiveHour), enabled: false });
   }
 
   if (currentMenuSettings.showWeeklyUsageInMainMenu) {
-    settingsItems.push({ label: `Week Usage: ${weekly}`, enabled: false });
+    settingsItems.push({ label: strings.weeklyUsageSummary(weekly), enabled: false });
   }
 
   if (currentMenuSettings.showQuotaSourceInMainMenu) {
-    settingsItems.push({ label: `Quota Source: ${source}`, enabled: false });
+    settingsItems.push({ label: strings.quotaSourceSummary(source), enabled: false });
   }
 
   if (currentMenuSettings.showUpdatedAtInMainMenu) {
-    settingsItems.push({ label: `Updated: ${currentQuota.updatedAt}`, enabled: false });
+    settingsItems.push({ label: strings.updatedAtSummary(currentQuota.updatedAt), enabled: false });
   }
 
   if (currentMenuSettings.showPetImageInMainMenu) {
     settingsItems.push({
       label: currentAppearance && currentAppearance.mode === "custom"
-        ? `Pet Image: ${currentAppearance.sourceImageLabel || "Custom"}`
-        : "Pet Image: Default Pixel Pet",
+        ? strings.petImageCurrent(currentAppearance.sourceImageLabel)
+        : strings.petImageDefault,
       enabled: false
     });
   }
 
   settingsItems.push({
-    label: `Reply Source: ${normalizeReplySourceMode(currentMenuSettings.replySourceMode)}`,
+    label: `${strings.replySource}: ${strings.replySourceValue[replySourceMode]}`,
     enabled: false
   });
   settingsItems.push({
-    label: `Reply Bubble Size: ${normalizeReplyBubbleSize(currentMenuSettings.replyBubbleSize)}`,
+    label: `${strings.replyBubbleSize}: ${strings.replyBubbleSizeValue[replyBubbleSize]}`,
+    enabled: false
+  });
+  settingsItems.push({
+    label: strings.timeZoneValue(
+      timeZonePreference === "system"
+        ? `${getTimeZoneOptionLabel("system")} (${getSystemTimeZone()})`
+        : getTimeZoneOptionLabel(timeZonePreference)
+    ),
     enabled: false
   });
 
   return Menu.buildFromTemplate([
     {
-      label: currentQuota.fiveHour.menuTitle || "5小时 limit --",
+      label: currentQuota.fiveHour.usedPercent != null
+        ? strings.fiveHourTitle(`${currentQuota.fiveHour.usedPercent}%`)
+        : strings.fiveHourFallbackTitle,
       sublabel: fiveHourSubtitle,
       enabled: false
     },
     {
-      label: currentQuota.weekly.menuTitle || "Weekly Limits --",
+      label: currentQuota.weekly.usedPercent != null
+        ? strings.weeklyTitle(`${currentQuota.weekly.usedPercent}%`)
+        : strings.weeklyFallbackTitle,
       sublabel: weeklySubtitle,
       enabled: false
     },
     { type: "separator" },
     {
-      label: "Settings",
+      label: strings.settings,
       submenu: [
         ...settingsItems,
         { type: "separator" },
         {
-          label: "Show 5h Usage In Settings",
+          label: strings.showFiveHourUsage,
           type: "checkbox",
           checked: currentMenuSettings.showFiveHourUsageInMainMenu,
           click: (item) => {
@@ -382,7 +660,7 @@ function buildContextMenu() {
           }
         },
         {
-          label: "Show Weekly Usage In Settings",
+          label: strings.showWeeklyUsage,
           type: "checkbox",
           checked: currentMenuSettings.showWeeklyUsageInMainMenu,
           click: (item) => {
@@ -390,7 +668,7 @@ function buildContextMenu() {
           }
         },
         {
-          label: "Show Quota Source In Settings",
+          label: strings.showQuotaSource,
           type: "checkbox",
           checked: currentMenuSettings.showQuotaSourceInMainMenu,
           click: (item) => {
@@ -398,7 +676,7 @@ function buildContextMenu() {
           }
         },
         {
-          label: "Show Updated Time In Settings",
+          label: strings.showUpdatedAt,
           type: "checkbox",
           checked: currentMenuSettings.showUpdatedAtInMainMenu,
           click: (item) => {
@@ -406,7 +684,7 @@ function buildContextMenu() {
           }
         },
         {
-          label: "Show Pet Image In Settings",
+          label: strings.showPetImage,
           type: "checkbox",
           checked: currentMenuSettings.showPetImageInMainMenu,
           click: (item) => {
@@ -415,28 +693,28 @@ function buildContextMenu() {
         },
         { type: "separator" },
         {
-          label: "Reply Source",
+          label: strings.replySource,
           submenu: [
             {
-              label: "Claude",
+              label: strings.replySourceValue.claude,
               type: "radio",
-              checked: normalizeReplySourceMode(currentMenuSettings.replySourceMode) === "claude",
+              checked: replySourceMode === "claude",
               click: () => {
                 setMenuSetting("replySourceMode", "claude");
               }
             },
             {
-              label: "Codex",
+              label: strings.replySourceValue.codex,
               type: "radio",
-              checked: normalizeReplySourceMode(currentMenuSettings.replySourceMode) === "codex",
+              checked: replySourceMode === "codex",
               click: () => {
                 setMenuSetting("replySourceMode", "codex");
               }
             },
             {
-              label: "Both",
+              label: strings.replySourceValue.both,
               type: "radio",
-              checked: normalizeReplySourceMode(currentMenuSettings.replySourceMode) === "both",
+              checked: replySourceMode === "both",
               click: () => {
                 setMenuSetting("replySourceMode", "both");
               }
@@ -444,45 +722,56 @@ function buildContextMenu() {
           ]
         },
         {
-          label: "Reply Bubble Size",
+          label: strings.replyBubbleSize,
           submenu: [
             {
-              label: "Small",
+              label: strings.replyBubbleSizeValue.small,
               type: "radio",
-              checked: normalizeReplyBubbleSize(currentMenuSettings.replyBubbleSize) === "small",
+              checked: replyBubbleSize === "small",
               click: () => {
                 setMenuSetting("replyBubbleSize", "small");
               }
             },
             {
-              label: "Medium",
+              label: strings.replyBubbleSizeValue.medium,
               type: "radio",
-              checked: normalizeReplyBubbleSize(currentMenuSettings.replyBubbleSize) === "medium",
+              checked: replyBubbleSize === "medium",
               click: () => {
                 setMenuSetting("replyBubbleSize", "medium");
               }
             },
             {
-              label: "Large",
+              label: strings.replyBubbleSizeValue.large,
               type: "radio",
-              checked: normalizeReplyBubbleSize(currentMenuSettings.replyBubbleSize) === "large",
+              checked: replyBubbleSize === "large",
               click: () => {
                 setMenuSetting("replyBubbleSize", "large");
               }
             },
             {
-              label: "XLarge",
+              label: strings.replyBubbleSizeValue.xlarge,
               type: "radio",
-              checked: normalizeReplyBubbleSize(currentMenuSettings.replyBubbleSize) === "xlarge",
+              checked: replyBubbleSize === "xlarge",
               click: () => {
                 setMenuSetting("replyBubbleSize", "xlarge");
               }
             }
           ]
         },
+        {
+          label: strings.timeZone,
+          submenu: Object.keys(TIME_ZONE_OPTIONS).map((preference) => ({
+            label: getTimeZoneOptionLabel(preference),
+            type: "radio",
+            checked: timeZonePreference === preference,
+            click: () => {
+              setMenuSetting("timeZonePreference", preference);
+            }
+          }))
+        },
         { type: "separator" },
         {
-          label: "Choose Custom Pet Image",
+          label: strings.chooseCustomPetImage,
           click: async () => {
             try {
               await chooseCustomAppearance();
@@ -492,7 +781,7 @@ function buildContextMenu() {
           }
         },
         {
-          label: "Reset Pet Image",
+          label: strings.resetPetImage,
           enabled: currentAppearance && currentAppearance.mode === "custom",
           click: () => {
             applyAppearance(resetAppearance(dataDir));
@@ -500,18 +789,18 @@ function buildContextMenu() {
         },
         { type: "separator" },
         {
-          label: "Sound",
+          label: strings.sound,
           submenu: buildSoundMenu()
         },
         { type: "separator" },
         {
-          label: "Sync Claude Status",
+          label: strings.syncClaudeStatus,
           click: async () => {
             void syncQuotaFromClaudeStatus();
           }
         },
         {
-          label: "Trigger Reply Finished",
+          label: strings.triggerReplyFinished,
           click: () => {
             sendAnimation("reply-finished");
           }
@@ -520,7 +809,7 @@ function buildContextMenu() {
     },
     { type: "separator" },
     {
-      label: "Quit",
+      label: strings.quit,
       click: () => app.quit()
     }
   ]);

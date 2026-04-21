@@ -9,7 +9,8 @@ function createDefaultMenuSettings() {
     showUpdatedAtInMainMenu: false,
     showPetImageInMainMenu: false,
     replySourceMode: "claude",
-    replyBubbleSize: "medium"
+    replyBubbleSize: "medium",
+    timeZonePreference: "system"
   };
 }
 
@@ -31,7 +32,8 @@ function normalizeMenuSettings(raw) {
     showUpdatedAtInMainMenu: raw.showUpdatedAtInMainMenu === true,
     showPetImageInMainMenu: raw.showPetImageInMainMenu === true,
     replySourceMode: normalizeReplySourceMode(raw.replySourceMode),
-    replyBubbleSize: normalizeReplyBubbleSize(raw.replyBubbleSize)
+    replyBubbleSize: normalizeReplyBubbleSize(raw.replyBubbleSize),
+    timeZonePreference: normalizeTimeZonePreference(raw.timeZonePreference)
   };
 }
 
@@ -49,6 +51,21 @@ function normalizeReplyBubbleSize(value) {
   }
 
   return "medium";
+}
+
+function normalizeTimeZonePreference(value) {
+  if (
+    value === "china"
+    || value === "japan"
+    || value === "uk"
+    || value === "us-east"
+    || value === "us-west"
+    || value === "utc"
+  ) {
+    return value;
+  }
+
+  return "system";
 }
 
 function ensureMenuSettings(baseDir) {
@@ -96,5 +113,6 @@ module.exports = {
   readMenuSettings,
   updateMenuSettings,
   normalizeReplySourceMode,
-  normalizeReplyBubbleSize
+  normalizeReplyBubbleSize,
+  normalizeTimeZonePreference
 };
