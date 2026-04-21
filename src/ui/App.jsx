@@ -3,10 +3,12 @@ import replyFinishedDefaultUrl from "../assets/reply-finished-default.mp3";
 
 const IDLE_TIMEOUT_MS = 15000;
 const DRAG_SOUND_THROTTLE_MS = 180;
-const PIXEL_WIDTH = 112;
-const PIXEL_HEIGHT = 112;
-const CUSTOM_PIXEL_SCALE = 1.1;
-const CUSTOM_PIXEL_COLOR_LEVELS = 18;
+const PIXEL_WIDTH = 42;
+const PIXEL_HEIGHT = 42;
+const CUSTOM_PIXEL_SCALE = 2.7;
+const CUSTOM_PIXEL_COLOR_LEVELS = 6;
+const WHITE_BG_THRESHOLD = 246;
+const WHITE_BG_MAX_SPREAD = 18;
 const DEFAULT_SOUND_SETTINGS = {
   masterMuted: false,
   masterVolume: 75,
@@ -47,6 +49,92 @@ function quantizeChannel(value, levels = CUSTOM_PIXEL_COLOR_LEVELS) {
   return Math.round(Math.round(value / step) * step);
 }
 
+function clampByte(value) {
+  return Math.max(0, Math.min(255, Math.round(value)));
+}
+
+function isNearWhiteBackground(data, pixelIndex) {
+  const red = data[pixelIndex];
+  const green = data[pixelIndex + 1];
+  const blue = data[pixelIndex + 2];
+  const alpha = data[pixelIndex + 3];
+  const spread = Math.max(red, green, blue) - Math.min(red, green, blue);
+  const brightness = (red + green + blue) / 3;
+
+  return alpha >= 200 && brightness >= WHITE_BG_THRESHOLD && spread <= WHITE_BG_MAX_SPREAD;
+}
+
+function removeEdgeConnectedWhiteBackground(imageData, width, height) {
+  const { data } = imageData;
+  const queue = [];
+  const visited = new Uint8Array(width * height);
+
+  const enqueueIfNeeded = (x, y) => {
+    if (x < 0 || x >= width || y < 0 || y >= height) {
+      return;
+    }
+
+    const flatIndex = (y * width) + x;
+    if (visited[flatIndex] === 1) {
+      return;
+    }
+
+    const pixelIndex = flatIndex * 4;
+    if (!isNearWhiteBackground(data, pixelIndex)) {
+      return;
+    }
+
+    visited[flatIndex] = 1;
+    queue.push(flatIndex);
+  };
+
+  for (let x = 0; x < width; x += 1) {
+    enqueueIfNeeded(x, 0);
+    enqueueIfNeeded(x, height - 1);
+  }
+
+  for (let y = 1; y < height - 1; y += 1) {
+    enqueueIfNeeded(0, y);
+    enqueueIfNeeded(width - 1, y);
+  }
+
+  while (queue.length > 0) {
+    const flatIndex = queue.shift();
+    const x = flatIndex % width;
+    const y = Math.floor(flatIndex / width);
+    const pixelIndex = flatIndex * 4;
+
+    data[pixelIndex] = 0;
+    data[pixelIndex + 1] = 0;
+    data[pixelIndex + 2] = 0;
+    data[pixelIndex + 3] = 0;
+
+    enqueueIfNeeded(x + 1, y);
+    enqueueIfNeeded(x - 1, y);
+    enqueueIfNeeded(x, y + 1);
+    enqueueIfNeeded(x, y - 1);
+  }
+
+  return imageData;
+}
+
+function exaggerateHighContrastColor(red, green, blue) {
+  const spread = Math.max(red, green, blue) - Math.min(red, green, blue);
+  const average = (red + green + blue) / 3;
+
+  if (spread < 42) {
+    return { red, green, blue };
+  }
+
+  const boost = 1.16 + Math.min(0.42, (spread - 42) / 180);
+
+  return {
+    red: clampByte(average + ((red - average) * boost)),
+    green: clampByte(average + ((green - average) * boost)),
+    blue: clampByte(average + ((blue - average) * boost))
+  };
+}
+
 function createPixelArtDataUrl(imageSource, size = { width: PIXEL_WIDTH, height: PIXEL_HEIGHT }) {
   return new Promise((resolve, reject) => {
     const image = new window.Image();
@@ -66,10 +154,15 @@ function createPixelArtDataUrl(imageSource, size = { width: PIXEL_WIDTH, height:
       }
 
       sourceContext.clearRect(0, 0, sourceWidth, sourceHeight);
-      sourceContext.imageSmoothingEnabled = true;
+      sourceContext.imageSmoothingEnabled = false;
       sourceContext.drawImage(image, 0, 0);
 
-      const sourceImageData = sourceContext.getImageData(0, 0, sourceWidth, sourceHeight);
+      const sourceImageData = removeEdgeConnectedWhiteBackground(
+        sourceContext.getImageData(0, 0, sourceWidth, sourceHeight),
+        sourceWidth,
+        sourceHeight
+      );
+      sourceContext.putImageData(sourceImageData, 0, 0);
       const sourceBounds = findOpaqueBounds(sourceImageData, sourceWidth, sourceHeight);
 
       const sampleCanvas = document.createElement("canvas");
@@ -83,7 +176,7 @@ function createPixelArtDataUrl(imageSource, size = { width: PIXEL_WIDTH, height:
       }
 
       sampleContext.clearRect(0, 0, targetWidth, targetHeight);
-      sampleContext.imageSmoothingEnabled = true;
+      sampleContext.imageSmoothingEnabled = false;
 
       const sourceRatio = sourceBounds.width / sourceBounds.height;
       const targetRatio = targetWidth / targetHeight;
@@ -104,7 +197,7 @@ function createPixelArtDataUrl(imageSource, size = { width: PIXEL_WIDTH, height:
       }
 
       sampleContext.drawImage(
-        image,
+        sourceCanvas,
         sourceBounds.x,
         sourceBounds.y,
         sourceBounds.width,
@@ -129,9 +222,16 @@ function createPixelArtDataUrl(imageSource, size = { width: PIXEL_WIDTH, height:
           continue;
         }
 
-        data[index] = quantizeChannel(data[index], CUSTOM_PIXEL_COLOR_LEVELS);
-        data[index + 1] = quantizeChannel(data[index + 1], CUSTOM_PIXEL_COLOR_LEVELS);
-        data[index + 2] = quantizeChannel(data[index + 2], CUSTOM_PIXEL_COLOR_LEVELS);
+        const boostedColor = exaggerateHighContrastColor(
+          data[index],
+          data[index + 1],
+          data[index + 2]
+        );
+
+        data[index] = quantizeChannel(boostedColor.red, CUSTOM_PIXEL_COLOR_LEVELS);
+        data[index + 1] = quantizeChannel(boostedColor.green, CUSTOM_PIXEL_COLOR_LEVELS);
+        data[index + 2] = quantizeChannel(boostedColor.blue, CUSTOM_PIXEL_COLOR_LEVELS);
+        data[index + 3] = alpha >= 64 ? 255 : 0;
       }
 
       sampleContext.putImageData(imageData, 0, 0);
