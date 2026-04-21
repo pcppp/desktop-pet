@@ -10,9 +10,12 @@ const SUPPORTED_AUDIO_EXTENSIONS = new Set([
 ]);
 
 const SOUND_KEYS = ["click", "replyFinished", "drag", "idle"];
+const DEFAULT_MASTER_VOLUME = 75;
 
 function createDefaultSoundSettings() {
   return {
+    masterMuted: false,
+    masterVolume: DEFAULT_MASTER_VOLUME,
     click: createDefaultSoundEntry("default"),
     replyFinished: createDefaultSoundEntry("default"),
     drag: createDefaultSoundEntry("silent"),
@@ -90,12 +93,24 @@ function normalizeSoundSettings(raw) {
   }
 
   return {
+    masterMuted: raw.masterMuted === true,
+    masterVolume: normalizeMasterVolume(raw.masterVolume, fallback.masterVolume),
     click: normalizeSoundEntry(raw.click, "default"),
     replyFinished: normalizeSoundEntry(raw.replyFinished, "default"),
     drag: normalizeSoundEntry(raw.drag, "silent"),
     idle: normalizeSoundEntry(raw.idle, "silent"),
     updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : fallback.updatedAt
   };
+}
+
+function normalizeMasterVolume(value, fallbackValue = DEFAULT_MASTER_VOLUME) {
+  const numericValue = Number(value);
+
+  if (!Number.isFinite(numericValue)) {
+    return fallbackValue;
+  }
+
+  return Math.min(100, Math.max(0, Math.round(numericValue)));
 }
 
 function writeSoundSettings(baseDir, soundSettings) {
@@ -184,6 +199,8 @@ function getMimeTypeFromAudioPath(filePath) {
 function toRendererSoundSettings(baseDir, soundSettingsInput) {
   const soundSettings = normalizeSoundSettings(soundSettingsInput || readSoundSettings(baseDir));
   const rendererSettings = {
+    masterMuted: soundSettings.masterMuted,
+    masterVolume: soundSettings.masterVolume,
     updatedAt: soundSettings.updatedAt
   };
 
@@ -293,6 +310,18 @@ function setSoundMode(baseDir, soundKey, mode) {
   return normalizeSoundSettings(nextSettings);
 }
 
+function updateSoundSettings(baseDir, patch) {
+  const currentSettings = readSoundSettings(baseDir);
+  const nextSettings = normalizeSoundSettings({
+    ...currentSettings,
+    ...patch,
+    updatedAt: new Date().toISOString()
+  });
+
+  writeSoundSettings(baseDir, nextSettings);
+  return nextSettings;
+}
+
 function describeSoundEntry(entry, fallbackDefaultLabel) {
   if (!entry || entry.mode === "silent") {
     return "Muted";
@@ -312,6 +341,7 @@ module.exports = {
   readSoundSettings,
   saveCustomSound,
   setSoundMode,
+  updateSoundSettings,
   toRendererSoundSettings,
   describeSoundEntry
 };

@@ -5,6 +5,8 @@ const DRAG_SOUND_THROTTLE_MS = 180;
 const PIXEL_WIDTH = 24;
 const PIXEL_HEIGHT = 24;
 const DEFAULT_SOUND_SETTINGS = {
+  masterMuted: false,
+  masterVolume: 75,
   click: { mode: "default", sourceAudioLabel: null, sourceDataUrl: null },
   replyFinished: { mode: "default", sourceAudioLabel: null, sourceDataUrl: null },
   drag: { mode: "silent", sourceAudioLabel: null, sourceDataUrl: null },
@@ -13,20 +15,20 @@ const DEFAULT_SOUND_SETTINGS = {
 };
 const DEFAULT_SOUND_PATTERNS = {
   click: [
-    { frequency: 880, duration: 0.05, volume: 0.04, type: "square" },
-    { frequency: 1240, duration: 0.04, volume: 0.03, type: "square", delay: 0.055 }
+    { frequency: 880, duration: 0.06, volume: 0.14, type: "square" },
+    { frequency: 1240, duration: 0.05, volume: 0.12, type: "square", delay: 0.06 }
   ],
   replyFinished: [
-    { frequency: 740, duration: 0.07, volume: 0.04, type: "triangle" },
-    { frequency: 988, duration: 0.08, volume: 0.04, type: "triangle", delay: 0.08 },
-    { frequency: 1318, duration: 0.1, volume: 0.035, type: "triangle", delay: 0.17 }
+    { frequency: 740, duration: 0.08, volume: 0.14, type: "triangle" },
+    { frequency: 988, duration: 0.09, volume: 0.13, type: "triangle", delay: 0.09 },
+    { frequency: 1318, duration: 0.11, volume: 0.12, type: "triangle", delay: 0.19 }
   ],
   drag: [
-    { frequency: 520, duration: 0.04, volume: 0.025, type: "square" }
+    { frequency: 520, duration: 0.045, volume: 0.09, type: "square" }
   ],
   idle: [
-    { frequency: 660, duration: 0.06, volume: 0.025, type: "sine" },
-    { frequency: 550, duration: 0.08, volume: 0.02, type: "sine", delay: 0.065 }
+    { frequency: 660, duration: 0.07, volume: 0.08, type: "sine" },
+    { frequency: 550, duration: 0.09, volume: 0.065, type: "sine", delay: 0.075 }
   ]
 };
 
@@ -169,6 +171,7 @@ export default function App() {
   const spriteRef = useRef(null);
   const audioContextRef = useRef(null);
   const dragSoundAtRef = useRef(0);
+  const customAudioPoolRef = useRef({});
 
   const getAudioContext = useEffectEvent(() => {
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
@@ -201,6 +204,7 @@ export default function App() {
     if (!pattern) {
       return;
     }
+    const masterVolume = (soundSettings.masterVolume ?? 75) / 100;
 
     const baseTime = context.currentTime + 0.01;
 
@@ -214,7 +218,7 @@ export default function App() {
       oscillator.frequency.setValueAtTime(note.frequency, startAt);
 
       gain.gain.setValueAtTime(0.0001, startAt);
-      gain.gain.linearRampToValueAtTime(note.volume || 0.03, startAt + 0.01);
+      gain.gain.linearRampToValueAtTime((note.volume || 0.03) * masterVolume, startAt + 0.01);
       gain.gain.exponentialRampToValueAtTime(0.0001, endAt);
 
       oscillator.connect(gain);
@@ -229,8 +233,16 @@ export default function App() {
       return;
     }
 
-    const audio = new window.Audio(dataUrl);
-    audio.volume = 0.9;
+    let audio = customAudioPoolRef.current[dataUrl];
+
+    if (!audio) {
+      audio = new window.Audio(dataUrl);
+      audio.preload = "auto";
+      customAudioPoolRef.current[dataUrl] = audio;
+    }
+
+    audio.volume = Math.min(1, Math.max(0, (soundSettings.masterVolume ?? 75) / 100));
+    audio.currentTime = 0;
 
     try {
       await audio.play();
@@ -240,6 +252,10 @@ export default function App() {
   });
 
   const playActionSound = useEffectEvent(async (soundKey) => {
+    if (soundSettings.masterMuted === true || (soundSettings.masterVolume ?? 75) <= 0) {
+      return;
+    }
+
     const soundEntry = soundSettings[soundKey];
     if (!soundEntry || soundEntry.mode === "silent") {
       return;
@@ -365,6 +381,7 @@ export default function App() {
       if (audioContextRef.current && audioContextRef.current.state !== "closed") {
         void audioContextRef.current.close().catch(() => {});
       }
+      customAudioPoolRef.current = {};
     };
   }, [getAudioContext, playActionSound, scheduleIdle, showState]);
 

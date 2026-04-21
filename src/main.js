@@ -24,6 +24,7 @@ const {
   readSoundSettings,
   saveCustomSound,
   setSoundMode,
+  updateSoundSettings,
   toRendererSoundSettings,
   describeSoundEntry
 } = require("./pet-sound");
@@ -142,6 +143,26 @@ function buildSoundMenuItem(label, soundKey, fallbackLabel) {
 
 function buildSoundMenu() {
   return [
+    {
+      label: "Mute All",
+      type: "checkbox",
+      checked: currentSoundSettings.masterMuted === true,
+      click: (item) => {
+        applySoundSettings(updateSoundSettings(dataDir, { masterMuted: item.checked }));
+      }
+    },
+    {
+      label: `Master Volume: ${currentSoundSettings.masterVolume}%`,
+      submenu: [100, 85, 75, 60, 45, 30, 15, 0].map((volume) => ({
+        label: `${volume}%`,
+        type: "radio",
+        checked: currentSoundSettings.masterVolume === volume,
+        click: () => {
+          applySoundSettings(updateSoundSettings(dataDir, { masterVolume: volume }));
+        }
+      }))
+    },
+    { type: "separator" },
     buildSoundMenuItem("Click", "click", "Default Click"),
     buildSoundMenuItem("Reply Finished", "replyFinished", "Default Reply"),
     buildSoundMenuItem("Drag", "drag", "Default Drag"),
