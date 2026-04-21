@@ -3,10 +3,10 @@ import replyFinishedDefaultUrl from "../assets/reply-finished-default.mp3";
 
 const IDLE_TIMEOUT_MS = 15000;
 const DRAG_SOUND_THROTTLE_MS = 180;
-const PIXEL_WIDTH = 42;
-const PIXEL_HEIGHT = 42;
-const CUSTOM_PIXEL_SCALE = 2.7;
-const CUSTOM_PIXEL_COLOR_LEVELS = 6;
+const PIXEL_WIDTH = 34;
+const PIXEL_HEIGHT = 34;
+const CUSTOM_PIXEL_SCALE = 3.2;
+const CUSTOM_PIXEL_COLOR_LEVELS = 5;
 const WHITE_BG_THRESHOLD = 246;
 const WHITE_BG_MAX_SPREAD = 18;
 const DEFAULT_SOUND_SETTINGS = {
