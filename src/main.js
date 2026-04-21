@@ -81,35 +81,26 @@ function buildContextMenu() {
   const loadingLabel = isQuotaRefreshing
     ? "Quota Sync: Loading..."
     : "Quota Sync: Ready";
-  const mainMenuItems = [
-    {
-      label: currentQuota.fiveHour.menuLabel || `5小时 limit reset in ${currentQuota.fiveHour.resetsAt}`,
-      enabled: false
-    },
-    {
-      label: currentQuota.weekly.menuLabel || `Weekly Limits Resets ${currentQuota.weekly.resetsAt}`,
-      enabled: false
-    }
-  ];
+  const settingsItems = [{ label: loadingLabel, enabled: false }];
 
   if (currentMenuSettings.showFiveHourUsageInMainMenu) {
-    mainMenuItems.push({ label: `5h Usage: ${fiveHour}`, enabled: false });
+    settingsItems.push({ label: `5h Usage: ${fiveHour}`, enabled: false });
   }
 
   if (currentMenuSettings.showWeeklyUsageInMainMenu) {
-    mainMenuItems.push({ label: `Week Usage: ${weekly}`, enabled: false });
+    settingsItems.push({ label: `Week Usage: ${weekly}`, enabled: false });
   }
 
   if (currentMenuSettings.showQuotaSourceInMainMenu) {
-    mainMenuItems.push({ label: `Quota Source: ${source}`, enabled: false });
+    settingsItems.push({ label: `Quota Source: ${source}`, enabled: false });
   }
 
   if (currentMenuSettings.showUpdatedAtInMainMenu) {
-    mainMenuItems.push({ label: `Updated: ${currentQuota.updatedAt}`, enabled: false });
+    settingsItems.push({ label: `Updated: ${currentQuota.updatedAt}`, enabled: false });
   }
 
   if (currentMenuSettings.showPetImageInMainMenu) {
-    mainMenuItems.push({
+    settingsItems.push({
       label: currentAppearance && currentAppearance.mode === "custom"
         ? `Pet Image: ${currentAppearance.sourceImageLabel || "Custom"}`
         : "Pet Image: Default Pixel Pet",
@@ -118,25 +109,24 @@ function buildContextMenu() {
   }
 
   return Menu.buildFromTemplate([
-    ...mainMenuItems,
+    {
+      label: currentQuota.fiveHour.menuTitle || "5小时 limit --",
+      sublabel: currentQuota.fiveHour.menuSubtitle || "reset in Unknown",
+      enabled: false
+    },
+    {
+      label: currentQuota.weekly.menuTitle || "Weekly Limits --",
+      sublabel: currentQuota.weekly.menuSubtitle || "Resets Unknown",
+      enabled: false
+    },
     { type: "separator" },
     {
       label: "Settings",
       submenu: [
-        { label: loadingLabel, enabled: false },
-        { label: `5h Usage: ${fiveHour}`, enabled: false },
-        { label: `Week Usage: ${weekly}`, enabled: false },
-        { label: `Quota Source: ${source}`, enabled: false },
-        { label: `Updated: ${currentQuota.updatedAt}`, enabled: false },
-        {
-          label: currentAppearance && currentAppearance.mode === "custom"
-            ? `Pet Image: ${currentAppearance.sourceImageLabel || "Custom"}`
-            : "Pet Image: Default Pixel Pet",
-          enabled: false
-        },
+        ...settingsItems,
         { type: "separator" },
         {
-          label: "Show 5h Usage In Main Menu",
+          label: "Show 5h Usage In Settings",
           type: "checkbox",
           checked: currentMenuSettings.showFiveHourUsageInMainMenu,
           click: (item) => {
@@ -144,7 +134,7 @@ function buildContextMenu() {
           }
         },
         {
-          label: "Show Weekly Usage In Main Menu",
+          label: "Show Weekly Usage In Settings",
           type: "checkbox",
           checked: currentMenuSettings.showWeeklyUsageInMainMenu,
           click: (item) => {
@@ -152,7 +142,7 @@ function buildContextMenu() {
           }
         },
         {
-          label: "Show Quota Source In Main Menu",
+          label: "Show Quota Source In Settings",
           type: "checkbox",
           checked: currentMenuSettings.showQuotaSourceInMainMenu,
           click: (item) => {
@@ -160,7 +150,7 @@ function buildContextMenu() {
           }
         },
         {
-          label: "Show Updated Time In Main Menu",
+          label: "Show Updated Time In Settings",
           type: "checkbox",
           checked: currentMenuSettings.showUpdatedAtInMainMenu,
           click: (item) => {
@@ -168,7 +158,7 @@ function buildContextMenu() {
           }
         },
         {
-          label: "Show Pet Image In Main Menu",
+          label: "Show Pet Image In Settings",
           type: "checkbox",
           checked: currentMenuSettings.showPetImageInMainMenu,
           click: (item) => {

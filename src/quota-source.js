@@ -21,13 +21,17 @@ function createEmptyQuota() {
       label: "Current week (all models)",
       display: "Unavailable",
       usedPercent: null,
-      resetsAt: "Unknown"
+      resetsAt: "Unknown",
+      menuTitle: "Weekly Limits --",
+      menuSubtitle: "Resets Unknown"
     },
     fiveHour: {
       label: "Current session",
       display: "Unavailable",
       usedPercent: null,
-      resetsAt: "Unknown"
+      resetsAt: "Unknown",
+      menuTitle: "5小时 limit --",
+      menuSubtitle: "reset in Unknown"
     },
     updatedAt: "unknown"
   };
@@ -39,7 +43,9 @@ function normalizeBucket(bucket, fallbackLabel) {
       label: fallbackLabel,
       display: "Unavailable",
       usedPercent: null,
-      resetsAt: "Unknown"
+      resetsAt: "Unknown",
+      menuTitle: fallbackLabel === "Current session" ? "5小时 limit --" : "Weekly Limits --",
+      menuSubtitle: fallbackLabel === "Current session" ? "reset in Unknown" : "Resets Unknown"
     };
   }
 
@@ -48,7 +54,9 @@ function normalizeBucket(bucket, fallbackLabel) {
       label: typeof bucket.label === "string" ? bucket.label : fallbackLabel,
       display: bucket.display,
       usedPercent: Number.isFinite(bucket.usedPercent) ? bucket.usedPercent : null,
-      resetsAt: typeof bucket.resetsAt === "string" ? bucket.resetsAt : "Unknown"
+      resetsAt: typeof bucket.resetsAt === "string" ? bucket.resetsAt : "Unknown",
+      menuTitle: typeof bucket.menuTitle === "string" ? bucket.menuTitle : undefined,
+      menuSubtitle: typeof bucket.menuSubtitle === "string" ? bucket.menuSubtitle : undefined
     };
   }
 
@@ -57,7 +65,9 @@ function normalizeBucket(bucket, fallbackLabel) {
       label: typeof bucket.label === "string" ? bucket.label : fallbackLabel,
       display: `${bucket.usedPercent}% used`,
       usedPercent: bucket.usedPercent,
-      resetsAt: typeof bucket.resetsAt === "string" ? bucket.resetsAt : "Unknown"
+      resetsAt: typeof bucket.resetsAt === "string" ? bucket.resetsAt : "Unknown",
+      menuTitle: typeof bucket.menuTitle === "string" ? bucket.menuTitle : undefined,
+      menuSubtitle: typeof bucket.menuSubtitle === "string" ? bucket.menuSubtitle : undefined
     };
   }
 
@@ -70,7 +80,9 @@ function normalizeBucket(bucket, fallbackLabel) {
       label: typeof bucket.label === "string" ? bucket.label : fallbackLabel,
       display: `${bucket.used}/${bucket.limit}`,
       usedPercent,
-      resetsAt: typeof bucket.resetsAt === "string" ? bucket.resetsAt : "Unknown"
+      resetsAt: typeof bucket.resetsAt === "string" ? bucket.resetsAt : "Unknown",
+      menuTitle: typeof bucket.menuTitle === "string" ? bucket.menuTitle : undefined,
+      menuSubtitle: typeof bucket.menuSubtitle === "string" ? bucket.menuSubtitle : undefined
     };
   }
 
@@ -78,38 +90,48 @@ function normalizeBucket(bucket, fallbackLabel) {
     label: fallbackLabel,
     display: "Unavailable",
     usedPercent: null,
-    resetsAt: "Unknown"
+    resetsAt: "Unknown",
+    menuTitle: fallbackLabel === "Current session" ? "5小时 limit --" : "Weekly Limits --",
+    menuSubtitle: fallbackLabel === "Current session" ? "reset in Unknown" : "Resets Unknown"
   };
 }
 
 function formatUsageDisplay(bucket, fallbackLabel) {
+  const defaultMenuTitle = fallbackLabel === "Current session"
+    ? "5小时 limit --"
+    : "Weekly Limits --";
+  const defaultMenuSubtitle = fallbackLabel === "Current session"
+    ? "reset in Unknown"
+    : "Resets Unknown";
+
   if (!bucket || typeof bucket !== "object") {
     return {
       label: fallbackLabel,
       display: "Unavailable",
       usedPercent: null,
       resetsAt: "Unknown",
-      menuLabel: fallbackLabel === "Current session"
-        ? "5-hour limit reset in Unknown"
-        : "Weekly Limits Resets Unknown"
+      menuTitle: defaultMenuTitle,
+      menuSubtitle: defaultMenuSubtitle
     };
   }
 
   const label = typeof bucket.label === "string" ? bucket.label : fallbackLabel;
   const display = typeof bucket.display === "string" ? bucket.display : "Unavailable";
   const resetsAt = typeof bucket.resetsAt === "string" ? bucket.resetsAt : "Unknown";
-  const menuLabel = typeof bucket.menuLabel === "string" && bucket.menuLabel
-    ? bucket.menuLabel
-    : (label === "Current session"
-      ? `5-hour limit reset in ${resetsAt}`
-      : `Weekly Limits Resets ${resetsAt}`);
+  const menuTitle = typeof bucket.menuTitle === "string" && bucket.menuTitle
+    ? bucket.menuTitle
+    : defaultMenuTitle;
+  const menuSubtitle = typeof bucket.menuSubtitle === "string" && bucket.menuSubtitle
+    ? bucket.menuSubtitle
+    : defaultMenuSubtitle;
 
   return {
     label,
     display,
     usedPercent: Number.isFinite(bucket.usedPercent) ? bucket.usedPercent : null,
     resetsAt,
-    menuLabel
+    menuTitle,
+    menuSubtitle
   };
 }
 
@@ -172,16 +194,21 @@ function humanizeResetText(text) {
 
 function buildBucket(label, usedPercent, resetsAt) {
   const menuResetsAt = formatResetForMenu(resetsAt);
-  const menuLabel = label === "Current session"
-    ? `5小时 limit reset in ${menuResetsAt}`
-    : `Weekly Limits Resets ${menuResetsAt}`;
+  const titlePercent = `${usedPercent}%`;
+  const menuTitle = label === "Current session"
+    ? `5小时 limit ${titlePercent}`
+    : `Weekly Limits ${titlePercent}`;
+  const menuSubtitle = label === "Current session"
+    ? `reset in ${menuResetsAt}`
+    : `Resets ${menuResetsAt}`;
 
   return {
     label,
     display: `${usedPercent}% used`,
     usedPercent,
     resetsAt,
-    menuLabel
+    menuTitle,
+    menuSubtitle
   };
 }
 
