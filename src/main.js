@@ -72,15 +72,12 @@ function buildContextMenu() {
 
   return Menu.buildFromTemplate([
     { label: loadingLabel, enabled: false },
-    { label: `5h Quota: ${fiveHour}`, enabled: false },
-    { label: `5h Reset: ${currentQuota.fiveHour.resetsAt}`, enabled: false },
-    { label: `Week Quota: ${weekly}`, enabled: false },
-    { label: `Week Reset: ${currentQuota.weekly.resetsAt}`, enabled: false },
+    { label: `5h Usage: ${fiveHour}`, enabled: false },
+    { label: currentQuota.fiveHour.menuLabel || `5-hour limit reset in ${currentQuota.fiveHour.resetsAt}`, enabled: false },
+    { label: `Week Usage: ${weekly}`, enabled: false },
+    { label: currentQuota.weekly.menuLabel || `Weekly Limits Resets ${currentQuota.weekly.resetsAt}`, enabled: false },
     { label: `Quota Source: ${source}`, enabled: false },
     { label: `Updated: ${currentQuota.updatedAt}`, enabled: false },
-    currentQuota.error
-      ? { label: `Last Sync Error: ${currentQuota.error}`, enabled: false }
-      : { label: "Last Sync Error: none", enabled: false },
     { type: "separator" },
     {
       label: currentAppearance && currentAppearance.mode === "custom"
@@ -147,8 +144,7 @@ async function syncQuotaFromClaudeStatus(options = {}) {
   } catch (error) {
     currentQuota = {
       ...readQuota(),
-      source: "cache",
-      error: error.message
+      source: "cache"
     };
   } finally {
     isQuotaRefreshing = false;

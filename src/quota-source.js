@@ -4,6 +4,15 @@ const { spawn } = require("child_process");
 
 const dataDir = path.join(__dirname, "..", "data");
 const quotaPath = path.join(dataDir, "quota.json");
+const STATUS_RATE_LIMIT_MESSAGE = "Usage endpoint is rate limited";
+const DEFAULT_STATUS_RETRIES = 5;
+const DEFAULT_STATUS_RETRY_DELAY_MS = 2500;
+
+function hasRateLimitMessage(rawText) {
+  return stripAnsi(rawText)
+    .replace(/\s+/g, " ")
+    .includes(STATUS_RATE_LIMIT_MESSAGE);
+}
 
 function createEmptyQuota() {
   return {
@@ -73,6 +82,37 @@ function normalizeBucket(bucket, fallbackLabel) {
   };
 }
 
+function formatUsageDisplay(bucket, fallbackLabel) {
+  if (!bucket || typeof bucket !== "object") {
+    return {
+      label: fallbackLabel,
+      display: "Unavailable",
+      usedPercent: null,
+      resetsAt: "Unknown",
+      menuLabel: fallbackLabel === "Current session"
+        ? "5-hour limit reset in Unknown"
+        : "Weekly Limits Resets Unknown"
+    };
+  }
+
+  const label = typeof bucket.label === "string" ? bucket.label : fallbackLabel;
+  const display = typeof bucket.display === "string" ? bucket.display : "Unavailable";
+  const resetsAt = typeof bucket.resetsAt === "string" ? bucket.resetsAt : "Unknown";
+  const menuLabel = typeof bucket.menuLabel === "string" && bucket.menuLabel
+    ? bucket.menuLabel
+    : (label === "Current session"
+      ? `5-hour limit reset in ${resetsAt}`
+      : `Weekly Limits Resets ${resetsAt}`);
+
+  return {
+    label,
+    display,
+    usedPercent: Number.isFinite(bucket.usedPercent) ? bucket.usedPercent : null,
+    resetsAt,
+    menuLabel
+  };
+}
+
 function normalizeQuota(raw) {
   const empty = createEmptyQuota();
 
@@ -82,8 +122,8 @@ function normalizeQuota(raw) {
 
   return {
     source: typeof raw.source === "string" ? raw.source : empty.source,
-    weekly: normalizeBucket(raw.weekly, empty.weekly.label),
-    fiveHour: normalizeBucket(raw.fiveHour, empty.fiveHour.label),
+    weekly: formatUsageDisplay(normalizeBucket(raw.weekly, empty.weekly.label), empty.weekly.label),
+    fiveHour: formatUsageDisplay(normalizeBucket(raw.fiveHour, empty.fiveHour.label), empty.fiveHour.label),
     updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : empty.updatedAt,
     error: typeof raw.error === "string" ? raw.error : undefined
   };
@@ -130,6 +170,20 @@ function humanizeResetText(text) {
     .trim();
 }
 
+function buildBucket(label, usedPercent, resetsAt) {
+  const menuLabel = label === "Current session"
+    ? `5-hour limit reset in ${resetsAt}`
+    : `Weekly Limits Resets ${resetsAt}`;
+
+  return {
+    label,
+    display: `${usedPercent}% used`,
+    usedPercent,
+    resetsAt,
+    menuLabel
+  };
+}
+
 function extractBucketFromCompactText(compactText, pattern, label) {
   const match = compactText.match(pattern);
   if (!match) {
@@ -139,30 +193,66 @@ function extractBucketFromCompactText(compactText, pattern, label) {
   const usedPercent = Number(match[1]);
   const resetsAt = humanizeResetText(match[2]);
 
-  return {
-    label,
-    display: `${usedPercent}% used`,
-    usedPercent,
-    resetsAt
-  };
+  return buildBucket(label, usedPercent, resetsAt);
+}
+
+function extractBucketFromTextLines(lines, options) {
+  const headerLine = lines.find((line) => options.headerPattern.test(line));
+  if (!headerLine) {
+    return null;
+  }
+
+  const headerIndex = lines.indexOf(headerLine);
+  const searchWindow = lines.slice(headerIndex, headerIndex + 6).join(" ");
+  const compactWindow = searchWindow.replace(/\s+/g, " ");
+
+  const percentMatch = compactWindow.match(/(\d{1,3})%\s*used/i);
+  const resetsMatch = compactWindow.match(options.resetPattern);
+
+  if (!percentMatch || !resetsMatch) {
+    return null;
+  }
+
+  return buildBucket(
+    options.label,
+    Number(percentMatch[1]),
+    humanizeResetText(resetsMatch[1])
+  );
 }
 
 function parseClaudeStatusUsage(rawText) {
-  const compactText = toNormalizedLines(rawText)
+  const normalizedLines = toNormalizedLines(rawText);
+  const compactText = normalizedLines
     .join(" ")
     .replace(/[█▌▐▛▜▘▝]+/g, " ")
     .replace(/\s+/g, " ");
 
-  const fiveHour = extractBucketFromCompactText(
+  let fiveHour = extractBucketFromCompactText(
     compactText,
     /Cur\w*session\s*(\d{1,3})%\s*used\s*Res(?:ets?|es)\s*([0-9: ]*(?:am|pm)\s*\(Asia\/Shanghai\))/i,
     "Current session"
   );
-  const weekly = extractBucketFromCompactText(
+  let weekly = extractBucketFromCompactText(
     compactText,
     /Current\s*week\s*\(all\s*models\).*?(\d{1,3})%\s*used.*?Resets?\s*([A-Za-z0-9: ]+\(Asia\/Shanghai\))/i,
     "Current week (all models)"
   );
+
+  if (!fiveHour) {
+    fiveHour = extractBucketFromTextLines(normalizedLines, {
+      headerPattern: /Current\s*session|5-hour/i,
+      resetPattern: /(reset(?:s)?(?:\s+in)?\s+[A-Za-z0-9: ]+(?:am|pm)?(?:\s*\(Asia\/Shanghai\))?)/i,
+      label: "Current session"
+    });
+  }
+
+  if (!weekly) {
+    weekly = extractBucketFromTextLines(normalizedLines, {
+      headerPattern: /Current\s*week|Weekly\s*Limits/i,
+      resetPattern: /(reset(?:s)?\s+[A-Za-z0-9: ]+(?:am|pm)?(?:\s*\(Asia\/Shanghai\))?)/i,
+      label: "Current week (all models)"
+    });
+  }
 
   if (!fiveHour || !weekly) {
     return null;
@@ -193,11 +283,13 @@ function fetchQuotaFromClaudeStatus(options = {}) {
   const cwd = options.cwd || process.cwd();
   const claudeBinary = resolveClaudeBinary();
   const debugPath = options.debugPath;
+  const usageRetryCount = Number.isInteger(options.usageRetryCount) ? options.usageRetryCount : 5;
 
   return new Promise((resolve, reject) => {
     const expectScript = `
 set timeout 30
 log_user 1
+set usage_retry_count ${usageRetryCount}
 spawn ${tclQuote(claudeBinary)}
 expect {
   "Quick safety check:" {
@@ -222,6 +314,17 @@ send "\\033\\[C"
 expect {
   "Current session" {
     after 1500
+  }
+  "Loading usage data" {
+    exp_continue
+  }
+  "Usage endpoint is rate limited" {
+    if {$usage_retry_count > 0} {
+      incr usage_retry_count -1
+      after 1200
+      send "r"
+      exp_continue
+    }
   }
   timeout {}
 }
@@ -257,6 +360,10 @@ expect eof
     };
 
     const tryResolveFromRawText = () => {
+      if (hasRateLimitMessage(rawText)) {
+        return false;
+      }
+
       const quota = parseClaudeStatusUsage(rawText);
       if (!quota) {
         return false;
@@ -273,12 +380,33 @@ expect eof
       return true;
     };
 
+    const rejectIfRateLimited = () => {
+      if (!hasRateLimitMessage(rawText) || settled) {
+        return false;
+      }
+
+      settled = true;
+
+      if (debugPath) {
+        fs.writeFileSync(debugPath, rawText);
+      }
+
+      cleanup();
+      reject(new Error("Claude Code usage endpoint is rate limited"));
+      return true;
+    };
+
     const onData = (chunk) => {
       if (settled) {
         return;
       }
 
       rawText += chunk.toString("utf8");
+
+      if (rejectIfRateLimited()) {
+        return;
+      }
+
       tryResolveFromRawText();
     };
 
@@ -303,11 +431,22 @@ expect eof
         fs.writeFileSync(debugPath, rawText);
       }
 
+      if (rejectIfRateLimited()) {
+        return;
+      }
+
       const quota = parseClaudeStatusUsage(rawText);
       if (quota) {
         settled = true;
         cleanup();
         resolve(quota);
+        return;
+      }
+
+      if (hasRateLimitMessage(rawText)) {
+        settled = true;
+        cleanup();
+        reject(new Error("Claude Code usage endpoint is rate limited"));
         return;
       }
 
@@ -322,6 +461,10 @@ expect eof
       }
 
       if (!tryResolveFromRawText()) {
+        if (rejectIfRateLimited()) {
+          return;
+        }
+
         settled = true;
 
         if (debugPath) {
@@ -339,8 +482,43 @@ function tclQuote(value) {
   return `"${String(value).replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}"`;
 }
 
+async function sleep(ms) {
+  await new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function fetchQuotaFromClaudeStatusWithRetry(options = {}) {
+  const retries = Number.isInteger(options.retries) ? options.retries : DEFAULT_STATUS_RETRIES;
+  const retryDelayMs = Number.isFinite(options.retryDelayMs)
+    ? options.retryDelayMs
+    : DEFAULT_STATUS_RETRY_DELAY_MS;
+
+  let lastError;
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await fetchQuotaFromClaudeStatus(options);
+    } catch (error) {
+      lastError = error;
+
+      const message = String(error && error.message ? error.message : error);
+      const isRetriable = message.includes("rate limited")
+        || message.includes("Timed out while reading Claude Code /status");
+
+      if (!isRetriable || attempt === retries) {
+        break;
+      }
+
+      await sleep(retryDelayMs * (attempt + 1));
+    }
+  }
+
+  throw lastError;
+}
+
 async function updateQuotaCacheFromClaudeStatus(options = {}) {
-  const quota = await fetchQuotaFromClaudeStatus(options);
+  const quota = await fetchQuotaFromClaudeStatusWithRetry(options);
   writeQuota(quota);
   return quota;
 }
@@ -352,5 +530,6 @@ module.exports = {
   writeQuota,
   parseClaudeStatusUsage,
   fetchQuotaFromClaudeStatus,
+  fetchQuotaFromClaudeStatusWithRetry,
   updateQuotaCacheFromClaudeStatus
 };
