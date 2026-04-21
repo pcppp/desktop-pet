@@ -28,7 +28,11 @@
       }
 
       body {
-        padding: 12px;
+        padding: 10px 10px 10px 24px;
+      }
+
+      body[data-side="left"] {
+        padding: 10px 24px 10px 10px;
       }
 
       #bubble {
@@ -47,32 +51,32 @@
       #bubble::after {
         content: "";
         position: absolute;
-        top: calc(50% - 12px);
+        top: 24px;
         width: 0;
         height: 0;
-        border-top: 12px solid transparent;
-        border-bottom: 12px solid transparent;
+        border-top: 14px solid transparent;
+        border-bottom: 14px solid transparent;
         pointer-events: none;
       }
 
       #bubble[data-side="right"]::before {
-        left: -16px;
-        border-right: 16px solid var(--border);
+        left: -20px;
+        border-right: 20px solid var(--border);
       }
 
       #bubble[data-side="right"]::after {
-        left: -11px;
-        border-right: 13px solid var(--bg);
+        left: -14px;
+        border-right: 16px solid var(--bg);
       }
 
       #bubble[data-side="left"]::before {
-        right: -16px;
-        border-left: 16px solid var(--border);
+        right: -20px;
+        border-left: 20px solid var(--border);
       }
 
       #bubble[data-side="left"]::after {
-        right: -11px;
-        border-left: 13px solid var(--bg);
+        right: -14px;
+        border-left: 16px solid var(--bg);
       }
 
       #content {
@@ -84,6 +88,7 @@
         line-height: 1.5;
         white-space: pre-wrap;
         word-break: break-word;
+        scrollbar-gutter: stable;
       }
 
       #content.collapsed {
@@ -105,12 +110,13 @@
       }
     </style>
   </head>
-  <body>
+  <body data-side="right">
     <div id="bubble" data-side="right">
       <div id="content" class="collapsed"></div>
     </div>
     <script>
       const bubble = document.getElementById("bubble");
+      const body = document.body;
       const content = document.getElementById("content");
       const SCROLL_DELTA_SCALE = 0.28;
       const SCROLL_DELTA_MAX = 24;
@@ -135,7 +141,7 @@
       window.replyBubbleBridge.onShow((payload) => {
         const fullText = String(payload && payload.fullText ? payload.fullText : "");
         const previewText = String(payload && payload.previewText ? payload.previewText : truncateToTwoLines(fullText));
-        content.textContent = expanded ? fullText : previewText;
+        content.textContent = fullText;
         content.dataset.fullText = fullText;
         content.dataset.previewText = previewText;
         content.scrollTop = 0;
@@ -148,18 +154,18 @@
       });
 
       window.replyBubbleBridge.onLayout((payload) => {
-        bubble.dataset.side = payload && payload.side === "left" ? "left" : "right";
+        const side = payload && payload.side === "left" ? "left" : "right";
+        bubble.dataset.side = side;
+        body.dataset.side = side;
       });
 
       document.body.addEventListener("mouseenter", () => {
         setExpanded(true);
-        content.textContent = content.dataset.fullText || content.textContent;
         window.replyBubbleBridge.hovered(true);
       });
 
       document.body.addEventListener("mouseleave", () => {
         setExpanded(false);
-        content.textContent = content.dataset.previewText || content.textContent;
         content.scrollTop = 0;
         window.replyBubbleBridge.hovered(false);
       });
