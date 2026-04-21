@@ -66,7 +66,6 @@ function PresetPixelPet({ presetId }) {
 
 export default function App() {
   const [state, setState] = useState("idle");
-  const [bubble, setBubble] = useState("Idle");
   const [animationCycle, setAnimationCycle] = useState(0);
   const [appearance, setAppearance] = useState({
     mode: "preset",
@@ -184,14 +183,13 @@ export default function App() {
     await playDefaultSound(soundKey);
   });
 
-  const showState = useEffectEvent((nextState, text, duration = 2200) => {
+  const showState = useEffectEvent((nextState, _text, duration = 2200) => {
     setState(nextState);
-    setBubble(text);
     setAnimationCycle((cycle) => cycle + 1);
 
     window.clearTimeout(showState.hideTimer);
     showState.hideTimer = window.setTimeout(() => {
-      setBubble("");
+      setState("idle");
     }, duration);
   });
 
@@ -357,9 +355,6 @@ export default function App() {
             <PresetPixelPet presetId={appearance.presetId} />
           </div>
         )}
-      </div>
-      <div id="bubble" className={bubble ? "visible" : ""}>
-        {bubble}
       </div>
     </main>
   );
