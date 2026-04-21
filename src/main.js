@@ -223,13 +223,53 @@ function parseFiveHourResetTime(resetsAt) {
     hour = 0;
   }
 
-  const target = new Date(now);
-  target.setSeconds(0, 0);
-  target.setHours(hour, minute, 0, 0);
+  const shanghaiParts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  }).formatToParts(now).reduce((accumulator, part) => {
+    if (part.type !== "literal") {
+      accumulator[part.type] = part.value;
+    }
+    return accumulator;
+  }, {});
 
-  if (target.getTime() <= now.getTime()) {
-    target.setDate(target.getDate() + 1);
+  const year = Number(shanghaiParts.year);
+  const month = Number(shanghaiParts.month);
+  const day = Number(shanghaiParts.day);
+  const currentShanghaiHour = Number(shanghaiParts.hour);
+  const currentShanghaiMinute = Number(shanghaiParts.minute);
+
+  let targetYear = year;
+  let targetMonth = month;
+  let targetDay = day;
+
+  if (hour < currentShanghaiHour || (hour === currentShanghaiHour && minute <= currentShanghaiMinute)) {
+    const nextDayUtcMs = Date.UTC(year, month - 1, day + 1, 0, 0, 0);
+    const nextDayParts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Shanghai",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).formatToParts(new Date(nextDayUtcMs)).reduce((accumulator, part) => {
+      if (part.type !== "literal") {
+        accumulator[part.type] = part.value;
+      }
+      return accumulator;
+    }, {});
+
+    targetYear = Number(nextDayParts.year);
+    targetMonth = Number(nextDayParts.month);
+    targetDay = Number(nextDayParts.day);
   }
+
+  const targetUtcMs = Date.UTC(targetYear, targetMonth - 1, targetDay, hour - 8, minute, 0, 0);
+  const target = new Date(targetUtcMs);
 
   return target;
 }
