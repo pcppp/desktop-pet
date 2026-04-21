@@ -31,7 +31,7 @@ function createEmptyQuota() {
       usedPercent: null,
       resetsAt: "Unknown",
       menuTitle: "5小时 limit --",
-      menuSubtitle: "reset in Unknown"
+      menuSubtitle: "Resets in Unknown"
     },
     updatedAt: "unknown"
   };
@@ -45,7 +45,7 @@ function normalizeBucket(bucket, fallbackLabel) {
       usedPercent: null,
       resetsAt: "Unknown",
       menuTitle: fallbackLabel === "Current session" ? "5小时 limit --" : "Weekly Limits --",
-      menuSubtitle: fallbackLabel === "Current session" ? "reset in Unknown" : "Resets Unknown"
+      menuSubtitle: fallbackLabel === "Current session" ? "Resets in Unknown" : "Resets Unknown"
     };
   }
 
@@ -92,7 +92,7 @@ function normalizeBucket(bucket, fallbackLabel) {
     usedPercent: null,
     resetsAt: "Unknown",
     menuTitle: fallbackLabel === "Current session" ? "5小时 limit --" : "Weekly Limits --",
-    menuSubtitle: fallbackLabel === "Current session" ? "reset in Unknown" : "Resets Unknown"
+    menuSubtitle: fallbackLabel === "Current session" ? "Resets in Unknown" : "Resets Unknown"
   };
 }
 
@@ -101,7 +101,7 @@ function formatUsageDisplay(bucket, fallbackLabel) {
     ? "5小时 limit --"
     : "Weekly Limits --";
   const defaultMenuSubtitle = fallbackLabel === "Current session"
-    ? "reset in Unknown"
+    ? "Resets in Unknown"
     : "Resets Unknown";
 
   if (!bucket || typeof bucket !== "object") {
@@ -182,6 +182,7 @@ function toNormalizedLines(text) {
 
 function humanizeResetText(text) {
   return text
+    .replace(/^reset(?:s)?(?:\s+in)?\s+/i, "")
     .replace(/([A-Za-z])(\d)/g, "$1 $2")
     .replace(/(\d)([A-Za-oq-zA-Z])/g, "$1 $2")
     .replace(/\b(\d)\s+(am|pm)\b/gi, "$1$2")
@@ -199,7 +200,7 @@ function buildBucket(label, usedPercent, resetsAt) {
     ? `5小时 limit ${titlePercent}`
     : `Weekly Limits ${titlePercent}`;
   const menuSubtitle = label === "Current session"
-    ? `reset in ${menuResetsAt}`
+    ? `Resets in ${menuResetsAt}`
     : `Resets ${menuResetsAt}`;
 
   return {
@@ -214,6 +215,7 @@ function buildBucket(label, usedPercent, resetsAt) {
 
 function formatResetForMenu(resetsAt) {
   const normalized = String(resetsAt || "Unknown")
+    .replace(/^reset(?:s)?(?:\s+in)?\s+/i, "")
     .replace(/\(Asia\/Shanghai\)/gi, "")
     .replace(/\bat\b/gi, " ")
     .replace(/\s+/g, " ")

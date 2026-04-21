@@ -202,9 +202,78 @@ function buildSoundMenu() {
   ];
 }
 
+function parseFiveHourResetTime(resetsAt) {
+  const normalized = String(resetsAt || "")
+    .replace(/^reset(?:s)?(?:\s+in)?\s+/i, "")
+    .trim();
+
+  const timeMatch = normalized.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i);
+  if (!timeMatch) {
+    return null;
+  }
+
+  const now = new Date();
+  let hour = Number(timeMatch[1]);
+  const minute = Number(timeMatch[2] || "0");
+  const period = timeMatch[3].toLowerCase();
+
+  if (period === "pm" && hour !== 12) {
+    hour += 12;
+  } else if (period === "am" && hour === 12) {
+    hour = 0;
+  }
+
+  const target = new Date(now);
+  target.setSeconds(0, 0);
+  target.setHours(hour, minute, 0, 0);
+
+  if (target.getTime() <= now.getTime()) {
+    target.setDate(target.getDate() + 1);
+  }
+
+  return target;
+}
+
+function formatFiveHourResetSubtitle(resetsAt) {
+  const target = parseFiveHourResetTime(resetsAt);
+  if (!target) {
+    return "Resets in Unknown";
+  }
+
+  const diffMs = target.getTime() - Date.now();
+  if (diffMs <= 0) {
+    return "Resets in 0 hr 00 min";
+  }
+
+  const totalMinutes = Math.ceil(diffMs / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `Resets in ${hours} hr ${String(minutes).padStart(2, "0")} min`;
+}
+
+function formatWeeklyResetSubtitle(menuSubtitle, resetsAt) {
+  if (typeof menuSubtitle === "string" && menuSubtitle.trim()) {
+    return menuSubtitle;
+  }
+
+  const normalized = String(resetsAt || "Unknown")
+    .replace(/^reset(?:s)?\s+/i, "")
+    .replace(/\(Asia\/Shanghai\)/gi, "")
+    .replace(/\bat\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return normalized ? `Resets ${normalized}` : "Resets Unknown";
+}
+
 function buildContextMenu() {
   const weekly = currentQuota.weekly.display;
   const fiveHour = currentQuota.fiveHour.display;
+  const fiveHourSubtitle = formatFiveHourResetSubtitle(currentQuota.fiveHour.resetsAt);
+  const weeklySubtitle = formatWeeklyResetSubtitle(
+    currentQuota.weekly.menuSubtitle,
+    currentQuota.weekly.resetsAt
+  );
   const source = currentQuota.source === "claude-status"
     ? "Claude /status"
     : "Cached fallback";
@@ -250,12 +319,12 @@ function buildContextMenu() {
   return Menu.buildFromTemplate([
     {
       label: currentQuota.fiveHour.menuTitle || "5小时 limit --",
-      sublabel: currentQuota.fiveHour.menuSubtitle || "reset in Unknown",
+      sublabel: fiveHourSubtitle,
       enabled: false
     },
     {
       label: currentQuota.weekly.menuTitle || "Weekly Limits --",
-      sublabel: currentQuota.weekly.menuSubtitle || "Resets Unknown",
+      sublabel: weeklySubtitle,
       enabled: false
     },
     { type: "separator" },
