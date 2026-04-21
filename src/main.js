@@ -145,6 +145,10 @@ function setMenuSetting(key, value) {
   if (key === "replyBubbleSize" && replyBubbleWindow && !replyBubbleWindow.isDestroyed()) {
     applyReplyBubblePosition(replyBubbleWindow);
   }
+  if (key === "timeZonePreference") {
+    currentQuota = readQuota();
+    void syncQuotaFromClaudeStatus({ animate: false });
+  }
   refreshTray();
 }
 
@@ -569,6 +573,7 @@ function formatWeeklyResetSubtitle(menuSubtitle, resetsAt) {
 }
 
 function buildContextMenu() {
+  currentQuota = readQuota();
   const strings = getUiStrings();
   const timeZonePreference = getSelectedTimeZonePreference();
   const replySourceMode = normalizeReplySourceMode(currentMenuSettings.replySourceMode);
