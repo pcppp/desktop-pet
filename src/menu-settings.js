@@ -8,7 +8,8 @@ function createDefaultMenuSettings() {
     showQuotaSourceInMainMenu: false,
     showUpdatedAtInMainMenu: false,
     showPetImageInMainMenu: false,
-    replySourceMode: "claude"
+    replySourceMode: "claude",
+    replyBubbleSize: "medium"
   };
 }
 
@@ -29,7 +30,8 @@ function normalizeMenuSettings(raw) {
     showQuotaSourceInMainMenu: raw.showQuotaSourceInMainMenu === true,
     showUpdatedAtInMainMenu: raw.showUpdatedAtInMainMenu === true,
     showPetImageInMainMenu: raw.showPetImageInMainMenu === true,
-    replySourceMode: normalizeReplySourceMode(raw.replySourceMode)
+    replySourceMode: normalizeReplySourceMode(raw.replySourceMode),
+    replyBubbleSize: normalizeReplyBubbleSize(raw.replyBubbleSize)
   };
 }
 
@@ -39,6 +41,14 @@ function normalizeReplySourceMode(value) {
   }
 
   return "claude";
+}
+
+function normalizeReplyBubbleSize(value) {
+  if (value === "small" || value === "large" || value === "xlarge") {
+    return value;
+  }
+
+  return "medium";
 }
 
 function ensureMenuSettings(baseDir) {
@@ -85,5 +95,6 @@ module.exports = {
   ensureMenuSettings,
   readMenuSettings,
   updateMenuSettings,
-  normalizeReplySourceMode
+  normalizeReplySourceMode,
+  normalizeReplyBubbleSize
 };

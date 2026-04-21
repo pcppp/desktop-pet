@@ -19,7 +19,8 @@ const {
   ensureMenuSettings,
   readMenuSettings,
   updateMenuSettings,
-  normalizeReplySourceMode
+  normalizeReplySourceMode,
+  normalizeReplyBubbleSize
 } = require("./menu-settings");
 const {
   ensureSoundStorage,
@@ -36,9 +37,14 @@ const dataDir = path.join(__dirname, "..", "data");
 const eventPath = path.join(dataDir, "events.ndjson");
 const distPath = path.join(__dirname, "..", "dist", "index.html");
 const replyBubblePath = path.join(__dirname, "reply-bubble.html");
-const REPLY_BUBBLE_WIDTH = 340;
-const REPLY_BUBBLE_HEIGHT = 132;
-const REPLY_BUBBLE_MARGIN = 12;
+const REPLY_BUBBLE_SIZE_MAP = {
+  small: { width: 280, height: 116 },
+  medium: { width: 340, height: 132 },
+  large: { width: 420, height: 156 },
+  xlarge: { width: 500, height: 188 }
+};
+const REPLY_BUBBLE_MARGIN = 8;
+const REPLY_BUBBLE_TOP_OFFSET = 14;
 const REPLY_BUBBLE_HIDE_DELAY_MS = 8000;
 const REPLY_BUBBLE_HOVER_LEAVE_HIDE_DELAY_MS = 3000;
 
@@ -96,7 +102,15 @@ function setMenuSetting(key, value) {
   if (key === "replySourceMode") {
     restartReplySourceWatchers();
   }
+  if (key === "replyBubbleSize" && replyBubbleWindow && !replyBubbleWindow.isDestroyed()) {
+    applyReplyBubblePosition(replyBubbleWindow);
+  }
   refreshTray();
+}
+
+function getReplyBubbleSize() {
+  const key = normalizeReplyBubbleSize(currentMenuSettings && currentMenuSettings.replyBubbleSize);
+  return REPLY_BUBBLE_SIZE_MAP[key] || REPLY_BUBBLE_SIZE_MAP.medium;
 }
 
 function applySoundSettings(nextSoundSettings) {
@@ -226,6 +240,10 @@ function buildContextMenu() {
     label: `Reply Source: ${normalizeReplySourceMode(currentMenuSettings.replySourceMode)}`,
     enabled: false
   });
+  settingsItems.push({
+    label: `Reply Bubble Size: ${normalizeReplyBubbleSize(currentMenuSettings.replyBubbleSize)}`,
+    enabled: false
+  });
 
   return Menu.buildFromTemplate([
     {
@@ -310,6 +328,43 @@ function buildContextMenu() {
               checked: normalizeReplySourceMode(currentMenuSettings.replySourceMode) === "both",
               click: () => {
                 setMenuSetting("replySourceMode", "both");
+              }
+            }
+          ]
+        },
+        {
+          label: "Reply Bubble Size",
+          submenu: [
+            {
+              label: "Small",
+              type: "radio",
+              checked: normalizeReplyBubbleSize(currentMenuSettings.replyBubbleSize) === "small",
+              click: () => {
+                setMenuSetting("replyBubbleSize", "small");
+              }
+            },
+            {
+              label: "Medium",
+              type: "radio",
+              checked: normalizeReplyBubbleSize(currentMenuSettings.replyBubbleSize) === "medium",
+              click: () => {
+                setMenuSetting("replyBubbleSize", "medium");
+              }
+            },
+            {
+              label: "Large",
+              type: "radio",
+              checked: normalizeReplyBubbleSize(currentMenuSettings.replyBubbleSize) === "large",
+              click: () => {
+                setMenuSetting("replyBubbleSize", "large");
+              }
+            },
+            {
+              label: "XLarge",
+              type: "radio",
+              checked: normalizeReplyBubbleSize(currentMenuSettings.replyBubbleSize) === "xlarge",
+              click: () => {
+                setMenuSetting("replyBubbleSize", "xlarge");
               }
             }
           ]
@@ -407,13 +462,15 @@ function scheduleReplyBubbleHide(delayMs = REPLY_BUBBLE_HIDE_DELAY_MS) {
 }
 
 function ensureReplyBubbleWindow() {
+  const size = getReplyBubbleSize();
+
   if (replyBubbleWindow && !replyBubbleWindow.isDestroyed()) {
     return replyBubbleWindow;
   }
 
   replyBubbleWindow = new BrowserWindow({
-    width: REPLY_BUBBLE_WIDTH,
-    height: REPLY_BUBBLE_HEIGHT,
+    width: size.width,
+    height: size.height,
     show: false,
     frame: false,
     transparent: true,
@@ -453,9 +510,11 @@ function ensureReplyBubbleWindow() {
 
 function getReplyBubblePosition() {
   if (!mainWindow || mainWindow.isDestroyed()) {
-    return { x: 160, y: 120, side: "right" };
+    const size = getReplyBubbleSize();
+    return { x: 160, y: 120, side: "right", width: size.width, height: size.height };
   }
 
+  const size = getReplyBubbleSize();
   const petBounds = mainWindow.getBounds();
   const petCenter = {
     x: petBounds.x + Math.round(petBounds.width / 2),
@@ -465,37 +524,38 @@ function getReplyBubblePosition() {
   const workArea = display.workArea;
   const rightSpace = workArea.x + workArea.width - (petBounds.x + petBounds.width) - REPLY_BUBBLE_MARGIN;
   const leftSpace = petBounds.x - workArea.x - REPLY_BUBBLE_MARGIN;
-  const side = rightSpace >= REPLY_BUBBLE_WIDTH || rightSpace >= leftSpace
+  const side = rightSpace >= size.width || rightSpace >= leftSpace
     ? "right"
     : "left";
   const desiredX = side === "right"
     ? petBounds.x + petBounds.width + REPLY_BUBBLE_MARGIN
-    : petBounds.x - REPLY_BUBBLE_WIDTH - REPLY_BUBBLE_MARGIN;
-  const desiredY = petBounds.y + Math.round((petBounds.height - REPLY_BUBBLE_HEIGHT) / 2);
+    : petBounds.x - size.width - REPLY_BUBBLE_MARGIN;
+  const desiredY = petBounds.y - REPLY_BUBBLE_TOP_OFFSET;
 
   const x = Math.min(
-    workArea.x + workArea.width - REPLY_BUBBLE_WIDTH - REPLY_BUBBLE_MARGIN,
+    workArea.x + workArea.width - size.width - REPLY_BUBBLE_MARGIN,
     Math.max(workArea.x + REPLY_BUBBLE_MARGIN, desiredX)
   );
   const y = Math.min(
-    workArea.y + workArea.height - REPLY_BUBBLE_HEIGHT - REPLY_BUBBLE_MARGIN,
+    workArea.y + workArea.height - size.height - REPLY_BUBBLE_MARGIN,
     Math.max(workArea.y + REPLY_BUBBLE_MARGIN, desiredY)
   );
 
-  return { x, y, side };
+  return { x, y, side, width: size.width, height: size.height };
 }
 
 function applyReplyBubblePosition(bubble) {
   if (!bubble || bubble.isDestroyed()) {
-    return { x: 160, y: 120, side: "right" };
+    const size = getReplyBubbleSize();
+    return { x: 160, y: 120, side: "right", width: size.width, height: size.height };
   }
 
   const placement = getReplyBubblePosition();
   bubble.setBounds({
     x: placement.x,
     y: placement.y,
-    width: REPLY_BUBBLE_WIDTH,
-    height: REPLY_BUBBLE_HEIGHT
+    width: placement.width,
+    height: placement.height
   });
 
   if (pendingReplyBubblePayload) {
