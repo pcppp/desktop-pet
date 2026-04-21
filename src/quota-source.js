@@ -247,6 +247,33 @@ function extractBucketFromCompactText(compactText, pattern, label) {
   return buildBucket(label, usedPercent, resetsAt);
 }
 
+function extractBucketFromCompactBlock(compactText, options) {
+  const startMatch = compactText.match(options.startPattern);
+  if (!startMatch || typeof startMatch.index !== "number") {
+    return null;
+  }
+
+  const startIndex = startMatch.index + startMatch[0].length;
+  const remainder = compactText.slice(startIndex);
+  const endMatch = remainder.match(options.endPattern);
+  const block = endMatch
+    ? remainder.slice(0, endMatch.index)
+    : remainder;
+
+  const percentMatch = block.match(/(\d{1,3})\s*%\s*used/i);
+  const resetMatch = block.match(options.resetPattern);
+
+  if (!percentMatch || !resetMatch) {
+    return null;
+  }
+
+  return buildBucket(
+    options.label,
+    Number(percentMatch[1]),
+    humanizeResetText(resetMatch[1])
+  );
+}
+
 function extractBucketFromTextLines(lines, options) {
   const headerLine = lines.find((line) => options.headerPattern.test(line));
   if (!headerLine) {
@@ -278,16 +305,35 @@ function parseClaudeStatusUsage(rawText) {
     .replace(/[█▌▐▛▜▘▝]+/g, " ")
     .replace(/\s+/g, " ");
 
-  let fiveHour = extractBucketFromCompactText(
+  let fiveHour = extractBucketFromCompactBlock(compactText, {
+    startPattern: /Cur\w*session/i,
+    endPattern: /Current\s*week|What's\s*contributing|Per-model|Extra\s*usage/i,
+    resetPattern: /Res(?:ets?|es)?\s*([0-9: ]*(?:am|pm)\s*\(Asia\/Shanghai\))/i,
+    label: "Current session"
+  });
+
+  if (!fiveHour) {
+    fiveHour = extractBucketFromCompactText(
     compactText,
     /Cur\w*session\s*(\d{1,3})%\s*used\s*Res(?:ets?|es)\s*([0-9: ]*(?:am|pm)\s*\(Asia\/Shanghai\))/i,
     "Current session"
-  );
-  let weekly = extractBucketFromCompactText(
+    );
+  }
+
+  let weekly = extractBucketFromCompactBlock(compactText, {
+    startPattern: /Current\s*week\s*\(all\s*models\)/i,
+    endPattern: /What's\s*contributing|Per-model|Extra\s*usage/i,
+    resetPattern: /Res(?:ets?)?\s*([A-Za-z0-9: ]+\(Asia\/Shanghai\))/i,
+    label: "Current week (all models)"
+  });
+
+  if (!weekly) {
+    weekly = extractBucketFromCompactText(
     compactText,
     /Current\s*week\s*\(all\s*models\).*?(\d{1,3})%\s*used.*?Resets?\s*([A-Za-z0-9: ]+\(Asia\/Shanghai\))/i,
     "Current week (all models)"
-  );
+    );
+  }
 
   if (!fiveHour) {
     fiveHour = extractBucketFromTextLines(normalizedLines, {
