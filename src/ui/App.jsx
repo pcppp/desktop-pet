@@ -3,8 +3,9 @@ import replyFinishedDefaultUrl from "../assets/reply-finished-default.mp3";
 
 const IDLE_TIMEOUT_MS = 15000;
 const DRAG_SOUND_THROTTLE_MS = 180;
-const PIXEL_WIDTH = 24;
-const PIXEL_HEIGHT = 24;
+const PIXEL_WIDTH = 40;
+const PIXEL_HEIGHT = 40;
+const CUSTOM_PIXEL_SCALE = 2.8;
 const DEFAULT_SOUND_SETTINGS = {
   masterMuted: false,
   masterVolume: 75,
@@ -36,10 +37,6 @@ const DEFAULT_SOUND_ASSETS = {
   replyFinished: replyFinishedDefaultUrl
 };
 
-function clamp(value, min, max) {
-  return Math.min(max, Math.max(min, value));
-}
-
 function quantizeChannel(value, levels = 6) {
   if (levels <= 1) {
     return value;
@@ -57,6 +54,22 @@ function createPixelArtDataUrl(imageSource, size = { width: PIXEL_WIDTH, height:
       const sourceHeight = image.naturalHeight || image.height;
       const targetWidth = size.width;
       const targetHeight = size.height;
+      const sourceCanvas = document.createElement("canvas");
+      sourceCanvas.width = sourceWidth;
+      sourceCanvas.height = sourceHeight;
+      const sourceContext = sourceCanvas.getContext("2d", { willReadFrequently: true });
+
+      if (!sourceContext) {
+        reject(new Error("Canvas is not available"));
+        return;
+      }
+
+      sourceContext.clearRect(0, 0, sourceWidth, sourceHeight);
+      sourceContext.imageSmoothingEnabled = false;
+      sourceContext.drawImage(image, 0, 0);
+
+      const sourceImageData = sourceContext.getImageData(0, 0, sourceWidth, sourceHeight);
+      const sourceBounds = findOpaqueBounds(sourceImageData, sourceWidth, sourceHeight);
 
       const sampleCanvas = document.createElement("canvas");
       sampleCanvas.width = targetWidth;
@@ -69,9 +82,9 @@ function createPixelArtDataUrl(imageSource, size = { width: PIXEL_WIDTH, height:
       }
 
       sampleContext.clearRect(0, 0, targetWidth, targetHeight);
-      sampleContext.imageSmoothingEnabled = true;
+      sampleContext.imageSmoothingEnabled = false;
 
-      const sourceRatio = sourceWidth / sourceHeight;
+      const sourceRatio = sourceBounds.width / sourceBounds.height;
       const targetRatio = targetWidth / targetHeight;
 
       let drawWidth = targetWidth;
@@ -89,7 +102,17 @@ function createPixelArtDataUrl(imageSource, size = { width: PIXEL_WIDTH, height:
         drawY = (targetHeight - drawHeight) / 2;
       }
 
-      sampleContext.drawImage(image, drawX, drawY, drawWidth, drawHeight);
+      sampleContext.drawImage(
+        image,
+        sourceBounds.x,
+        sourceBounds.y,
+        sourceBounds.width,
+        sourceBounds.height,
+        drawX,
+        drawY,
+        drawWidth,
+        drawHeight
+      );
 
       const imageData = sampleContext.getImageData(0, 0, targetWidth, targetHeight);
       const { data } = imageData;
@@ -134,6 +157,45 @@ function createPixelArtDataUrl(imageSource, size = { width: PIXEL_WIDTH, height:
     };
     image.src = imageSource;
   });
+}
+
+function findOpaqueBounds(imageData, width, height) {
+  const { data } = imageData;
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const alpha = data[((y * width) + x) * 4 + 3];
+
+      if (alpha < 24) {
+        continue;
+      }
+
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+  }
+
+  if (maxX < minX || maxY < minY) {
+    return {
+      x: 0,
+      y: 0,
+      width,
+      height
+    };
+  }
+
+  return {
+    x: minX,
+    y: minY,
+    width: Math.max(1, maxX - minX + 1),
+    height: Math.max(1, maxY - minY + 1)
+  };
 }
 
 function DefaultPixelPet() {
@@ -453,7 +515,7 @@ export default function App() {
     scheduleIdle();
   };
 
-  const pixelScale = appearance.mode === "custom" ? clamp(4.6, 3.8, 5.2) : 1;
+  const pixelScale = appearance.mode === "custom" ? CUSTOM_PIXEL_SCALE : 1;
 
   return (
     <main id="pet-root">
@@ -472,6 +534,10 @@ export default function App() {
               className="custom-pet-image"
               src={customSpriteUrl}
               alt={appearance.sourceImageLabel || "Custom pet"}
+              draggable={false}
+              onDragStart={(event) => {
+                event.preventDefault();
+              }}
               style={{ width: `${PIXEL_WIDTH * pixelScale}px`, height: `${PIXEL_HEIGHT * pixelScale}px` }}
             />
             <div className="custom-pet-frame"></div>

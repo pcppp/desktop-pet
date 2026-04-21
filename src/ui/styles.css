@@ -222,6 +222,9 @@ select {
   display: block;
   image-rendering: pixelated;
   object-fit: contain;
+  -webkit-user-drag: none;
+  user-drag: none;
+  pointer-events: none;
   filter:
     drop-shadow(0 0 0 rgba(0, 0, 0, 0))
     drop-shadow(6px 8px 0 rgba(24, 15, 10, 0.18));
