@@ -370,14 +370,23 @@ app.on("before-quit", () => {
   }
 });
 
-ipcMain.on("pet:open-context-menu", () => {
-  const menu = buildContextMenu();
-  menu.popup({ window: mainWindow });
-  void syncQuotaFromClaudeStatus({ animate: false });
-});
-
 ipcMain.handle("pet:get-appearance", () => {
   return toRendererAppearance(dataDir, currentAppearance);
+});
+
+ipcMain.handle("pet:get-quota-snapshot", () => {
+  return {
+    quota: currentQuota,
+    isRefreshing: isQuotaRefreshing
+  };
+});
+
+ipcMain.handle("pet:sync-quota", async () => {
+  await syncQuotaFromClaudeStatus({ animate: false });
+  return {
+    quota: currentQuota,
+    isRefreshing: isQuotaRefreshing
+  };
 });
 
 ipcMain.handle("pet:choose-custom-appearance", async () => {

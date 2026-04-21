@@ -258,16 +258,11 @@ select {
   transform: translateX(-50%) translateY(0);
 }
 
-#pet-panel {
+#pet-menu {
   position: absolute;
-  left: 8px;
-  bottom: 8px;
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
+  z-index: 20;
 }
 
-.panel-toggle,
 .panel-button {
   border: 3px solid var(--ink);
   background: linear-gradient(180deg, #fff0bf 0 48%, #f1b85c 48% 100%);
@@ -277,45 +272,22 @@ select {
   transition: transform 100ms steps(2), box-shadow 100ms steps(2);
 }
 
-.panel-toggle:active,
 .panel-button:active {
   transform: translate(2px, 2px);
   box-shadow: 2px 2px 0 rgba(30, 18, 11, 0.22);
 }
 
-.panel-toggle {
-  min-width: 58px;
-  height: 34px;
-  padding: 0 12px;
-  font-size: 12px;
-  font-weight: 800;
-}
-
 .panel-card {
-  width: 0;
-  overflow: hidden;
-  opacity: 0;
-  padding: 0;
-  border: 0 solid transparent;
-  background: transparent;
-  transform: translateX(-8px);
-  transition:
-    width 120ms steps(5),
-    opacity 120ms linear,
-    transform 120ms steps(3),
-    padding 120ms linear,
-    border-color 120ms linear;
-}
-
-#pet-panel.open .panel-card {
-  width: 170px;
-  opacity: 1;
   padding: 10px;
   border: 3px solid var(--ink);
   background:
-    linear-gradient(180deg, rgba(255, 228, 177, 0.96) 0 18%, rgba(67, 46, 26, 0.96) 18% 100%);
-  transform: translateX(0);
+    linear-gradient(180deg, rgba(255, 228, 177, 0.98) 0 18%, rgba(67, 46, 26, 0.97) 18% 100%);
   box-shadow: 6px 6px 0 rgba(25, 15, 9, 0.24);
+  animation: menu-pop 120ms steps(4);
+}
+
+.menu-card {
+  width: 188px;
 }
 
 .panel-title {
@@ -325,6 +297,21 @@ select {
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.08em;
+}
+
+.panel-label {
+  margin-bottom: 6px;
+  color: #ffd998;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.panel-section + .panel-section {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 2px solid rgba(255, 217, 152, 0.18);
 }
 
 .panel-text,
@@ -363,6 +350,24 @@ select {
 .panel-error {
   margin-top: 8px;
   color: #ffb09f;
+}
+
+.quota-grid {
+  margin-top: 8px;
+}
+
+.quota-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #fff0cb;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.quota-row.subtle {
+  color: #d3bf98;
+  margin-bottom: 4px;
 }
 
 .state-click {
@@ -420,4 +425,9 @@ select {
   0% { filter: brightness(1); }
   50% { filter: brightness(1.18) drop-shadow(0 0 14px rgba(255, 139, 93, 0.55)); }
   100% { filter: brightness(1); }
+}
+
+@keyframes menu-pop {
+  0% { transform: translateY(6px); opacity: 0.2; }
+  100% { transform: translateY(0); opacity: 1; }
 }
