@@ -1,11 +1,146 @@
-import { useEffect, useEffectEvent, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 
 const IDLE_TIMEOUT_MS = 15000;
+const PIXEL_WIDTH = 24;
+const PIXEL_HEIGHT = 24;
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function quantizeChannel(value, levels = 6) {
+  if (levels <= 1) {
+    return value;
+  }
+
+  const step = 255 / (levels - 1);
+  return Math.round(Math.round(value / step) * step);
+}
+
+function createPixelArtDataUrl(imageSource, size = { width: PIXEL_WIDTH, height: PIXEL_HEIGHT }) {
+  return new Promise((resolve, reject) => {
+    const image = new window.Image();
+    image.onload = () => {
+      const sourceWidth = image.naturalWidth || image.width;
+      const sourceHeight = image.naturalHeight || image.height;
+      const targetWidth = size.width;
+      const targetHeight = size.height;
+
+      const sampleCanvas = document.createElement("canvas");
+      sampleCanvas.width = targetWidth;
+      sampleCanvas.height = targetHeight;
+      const sampleContext = sampleCanvas.getContext("2d", { willReadFrequently: true });
+
+      if (!sampleContext) {
+        reject(new Error("Canvas is not available"));
+        return;
+      }
+
+      sampleContext.clearRect(0, 0, targetWidth, targetHeight);
+      sampleContext.imageSmoothingEnabled = true;
+
+      const sourceRatio = sourceWidth / sourceHeight;
+      const targetRatio = targetWidth / targetHeight;
+
+      let drawWidth = targetWidth;
+      let drawHeight = targetHeight;
+      let drawX = 0;
+      let drawY = 0;
+
+      if (sourceRatio > targetRatio) {
+        drawHeight = targetHeight;
+        drawWidth = targetHeight * sourceRatio;
+        drawX = (targetWidth - drawWidth) / 2;
+      } else {
+        drawWidth = targetWidth;
+        drawHeight = targetWidth / sourceRatio;
+        drawY = (targetHeight - drawHeight) / 2;
+      }
+
+      sampleContext.drawImage(image, drawX, drawY, drawWidth, drawHeight);
+
+      const imageData = sampleContext.getImageData(0, 0, targetWidth, targetHeight);
+      const { data } = imageData;
+
+      for (let index = 0; index < data.length; index += 4) {
+        const alpha = data[index + 3];
+
+        if (alpha < 24) {
+          data[index] = 0;
+          data[index + 1] = 0;
+          data[index + 2] = 0;
+          data[index + 3] = 0;
+          continue;
+        }
+
+        data[index] = quantizeChannel(data[index], 6);
+        data[index + 1] = quantizeChannel(data[index + 1], 6);
+        data[index + 2] = quantizeChannel(data[index + 2], 6);
+        data[index + 3] = 255;
+      }
+
+      sampleContext.putImageData(imageData, 0, 0);
+
+      const outputCanvas = document.createElement("canvas");
+      outputCanvas.width = targetWidth;
+      outputCanvas.height = targetHeight;
+      const outputContext = outputCanvas.getContext("2d");
+
+      if (!outputContext) {
+        reject(new Error("Canvas is not available"));
+        return;
+      }
+
+      outputContext.imageSmoothingEnabled = false;
+      outputContext.clearRect(0, 0, targetWidth, targetHeight);
+      outputContext.drawImage(sampleCanvas, 0, 0);
+
+      resolve(outputCanvas.toDataURL("image/png"));
+    };
+    image.onerror = () => {
+      reject(new Error("Unable to process the selected image"));
+    };
+    image.src = imageSource;
+  });
+}
+
+function DefaultPixelPet() {
+  return (
+    <div className="pixel-pet-shell">
+      <div className="pixel-pet-body">
+        <div className="pixel-pet-ears">
+          <span className="ear left"></span>
+          <span className="ear right"></span>
+        </div>
+        <div className="pixel-pet-face">
+          <span className="pixel-eye left"></span>
+          <span className="pixel-eye right"></span>
+          <span className="pixel-mouth"></span>
+          <span className="pixel-blush left"></span>
+          <span className="pixel-blush right"></span>
+        </div>
+        <div className="pixel-pet-badge">CC</div>
+      </div>
+      <div className="pixel-pet-tail"></div>
+    </div>
+  );
+}
 
 export default function App() {
   const [state, setState] = useState("idle");
   const [bubble, setBubble] = useState("Idle");
   const [animationCycle, setAnimationCycle] = useState(0);
+  const [appearance, setAppearance] = useState({
+    mode: "default",
+    sourceImageLabel: null,
+    sourceDataUrl: null
+  });
+  const [customSpriteUrl, setCustomSpriteUrl] = useState(null);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [appearanceError, setAppearanceError] = useState("");
+  const latestAppearanceJobRef = useRef(0);
+  const lastAppearanceKeyRef = useRef("");
 
   const showState = useEffectEvent((nextState, text, duration = 2200) => {
     setState(nextState);
@@ -32,21 +167,65 @@ export default function App() {
     document.addEventListener("mousemove", onMouseMove);
     document.addEventListener("keydown", onKeyDown);
 
+    const syncAppearance = async (nextAppearance) => {
+      const appearancePayload = nextAppearance || await window.petBridge.getAppearance();
+      setAppearance(appearancePayload);
+
+      if (!appearancePayload || appearancePayload.mode !== "custom" || !appearancePayload.sourceDataUrl) {
+        lastAppearanceKeyRef.current = "";
+        setCustomSpriteUrl(null);
+        setAppearanceError("");
+        return;
+      }
+
+      const nextAppearanceKey = `${appearancePayload.updatedAt || ""}:${appearancePayload.sourceDataUrl}`;
+      if (lastAppearanceKeyRef.current === nextAppearanceKey) {
+        return;
+      }
+
+      lastAppearanceKeyRef.current = nextAppearanceKey;
+      setAppearanceError("");
+
+      const jobId = latestAppearanceJobRef.current + 1;
+      latestAppearanceJobRef.current = jobId;
+
+      try {
+        const pixelArtDataUrl = await createPixelArtDataUrl(appearancePayload.sourceDataUrl);
+        if (latestAppearanceJobRef.current !== jobId) {
+          return;
+        }
+        setCustomSpriteUrl(pixelArtDataUrl);
+      } catch (error) {
+        if (latestAppearanceJobRef.current !== jobId) {
+          return;
+        }
+        setCustomSpriteUrl(null);
+        setAppearanceError(error.message);
+      }
+    };
+
     const disposeTrigger = window.petBridge.onTrigger((payload) => {
       if (payload.trigger === "reply-finished") {
         showState("reply", "Claude Code reply finished");
       } else if (payload.trigger === "quota-updated") {
         showState("reply", "Quota refreshed");
       }
+
       scheduleIdle();
     });
 
+    const disposeAppearance = window.petBridge.onAppearance((payload) => {
+      void syncAppearance(payload);
+    });
+
+    void syncAppearance();
     scheduleIdle();
 
     return () => {
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("keydown", onKeyDown);
       disposeTrigger();
+      disposeAppearance();
       window.clearTimeout(scheduleIdle.timer);
       window.clearTimeout(showState.hideTimer);
     };
@@ -102,32 +281,99 @@ export default function App() {
     scheduleIdle();
   };
 
+  const handleChooseAppearance = async () => {
+    setIsImporting(true);
+    setAppearanceError("");
+
+    try {
+      const nextAppearance = await window.petBridge.chooseCustomAppearance();
+      if (nextAppearance) {
+        showState("reply", "Custom pet imported", 1800);
+      }
+    } catch (error) {
+      setAppearanceError(error.message || "Unable to import image");
+    } finally {
+      setIsImporting(false);
+      scheduleIdle();
+    }
+  };
+
+  const handleResetAppearance = async () => {
+    setAppearanceError("");
+
+    try {
+      await window.petBridge.resetAppearance();
+      showState("click", "Default pixel pet restored", 1800);
+    } catch (error) {
+      setAppearanceError(error.message || "Unable to reset image");
+    } finally {
+      scheduleIdle();
+    }
+  };
+
+  const handlePanelToggle = () => {
+    setPanelOpen((open) => !open);
+    scheduleIdle();
+  };
+
+  const pixelScale = appearance.mode === "custom" ? clamp(4.6, 3.8, 5.2) : 1;
+
   return (
     <main id="pet-root">
       <div
         key={animationCycle}
         id="pet"
-        className={`state-${state}`}
+        className={`state-${state} ${appearance.mode === "custom" ? "is-custom" : "is-default"}`}
         title="Desktop Pet"
         onPointerDown={handlePointerDown}
         onContextMenu={handleContextMenu}
       >
         <div className="pet-shadow"></div>
-        <div className="pet-body">
-          <div className="pet-face">
-            <div className="eyes">
-              <span className="eye"></span>
-              <span className="eye"></span>
-            </div>
-            <div className="mouth"></div>
+        {appearance.mode === "custom" && customSpriteUrl ? (
+          <div className="custom-pet-shell">
+            <img
+              className="custom-pet-image"
+              src={customSpriteUrl}
+              alt={appearance.sourceImageLabel || "Custom pet"}
+              style={{ width: `${PIXEL_WIDTH * pixelScale}px`, height: `${PIXEL_HEIGHT * pixelScale}px` }}
+            />
+            <div className="custom-pet-frame"></div>
           </div>
-          <div className="pet-badge">CC</div>
-        </div>
-        <div className="pet-tail"></div>
+        ) : (
+          <DefaultPixelPet />
+        )}
       </div>
       <div id="bubble" className={bubble ? "visible" : ""}>
         {bubble}
       </div>
+      <section id="pet-panel" className={panelOpen ? "open" : ""}>
+        <button type="button" className="panel-toggle" onClick={handlePanelToggle}>
+          {panelOpen ? "Close" : "Style"}
+        </button>
+        <div className="panel-card">
+          <div className="panel-title">Pixel Pet</div>
+          <div className="panel-text">
+            {appearance.mode === "custom"
+              ? `Custom sprite: ${appearance.sourceImageLabel || "Imported image"}`
+              : "Default built-in pixel sprite"}
+          </div>
+          <div className="panel-actions">
+            <button type="button" className="panel-button" disabled={isImporting} onClick={handleChooseAppearance}>
+              {isImporting ? "Importing..." : "Import Image"}
+            </button>
+            <button
+              type="button"
+              className="panel-button secondary"
+              disabled={appearance.mode !== "custom"}
+              onClick={handleResetAppearance}
+            >
+              Reset
+            </button>
+          </div>
+          <div className="panel-tip">Images are auto-converted into a pixel-style sprite.</div>
+          {appearanceError ? <div className="panel-error">{appearanceError}</div> : null}
+        </div>
+      </section>
     </main>
   );
 }

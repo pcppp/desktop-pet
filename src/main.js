@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain } = require("electron");
+const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, dialog } = require("electron");
 const fs = require("fs");
 const path = require("path");
 const {
@@ -7,6 +7,13 @@ const {
   updateQuotaCacheFromClaudeStatus
 } = require("./quota-source");
 const { createClaudeTranscriptWatcher } = require("./claude-transcript-watcher");
+const {
+  ensureAppearanceStorage,
+  readAppearance,
+  resetAppearance,
+  saveCustomAppearance,
+  toRendererAppearance
+} = require("./pet-appearance");
 
 const WINDOW_SIZE = 220;
 const dataDir = path.join(__dirname, "..", "data");
@@ -20,9 +27,11 @@ let eventWatcher;
 let claudeTranscriptWatcher;
 let quotaRefreshTimer;
 let isQuotaRefreshing = false;
+let currentAppearance;
 
 function ensureDataFiles() {
   fs.mkdirSync(dataDir, { recursive: true });
+  ensureAppearanceStorage(dataDir);
   if (!fs.existsSync(quotaPath)) {
     fs.writeFileSync(
       quotaPath,
@@ -72,6 +81,26 @@ function buildContextMenu() {
     currentQuota.error
       ? { label: `Last Sync Error: ${currentQuota.error}`, enabled: false }
       : { label: "Last Sync Error: none", enabled: false },
+    { type: "separator" },
+    {
+      label: currentAppearance && currentAppearance.mode === "custom"
+        ? `Pet Image: ${currentAppearance.sourceImageLabel || "Custom"}`
+        : "Pet Image: Default Pixel Pet",
+      enabled: false
+    },
+    {
+      label: "Choose Custom Pet Image",
+      click: async () => {
+        await chooseCustomAppearance();
+      }
+    },
+    {
+      label: "Reset Pet Image",
+      enabled: currentAppearance && currentAppearance.mode === "custom",
+      click: () => {
+        applyAppearance(resetAppearance(dataDir));
+      }
+    },
     { type: "separator" },
     {
       label: "Trigger Reply Finished",
@@ -140,6 +169,42 @@ function sendAnimation(trigger) {
   });
 }
 
+function sendAppearance() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+
+  mainWindow.webContents.send("pet:appearance", toRendererAppearance(dataDir, currentAppearance));
+}
+
+function applyAppearance(nextAppearance) {
+  currentAppearance = nextAppearance;
+  refreshTray();
+  sendAppearance();
+  return toRendererAppearance(dataDir, currentAppearance);
+}
+
+async function chooseCustomAppearance() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return null;
+  }
+
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: "Choose a pet image",
+    properties: ["openFile"],
+    filters: [
+      { name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "gif", "bmp"] }
+    ]
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return null;
+  }
+
+  const nextAppearance = saveCustomAppearance(dataDir, result.filePaths[0]);
+  return applyAppearance(nextAppearance);
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: WINDOW_SIZE,
@@ -168,6 +233,10 @@ function createWindow() {
   mainWindow.setMenuBarVisibility(false);
   mainWindow.setPosition(120, 120);
   mainWindow.show();
+
+  mainWindow.webContents.on("did-finish-load", () => {
+    sendAppearance();
+  });
 
   mainWindow.on("closed", () => {
     mainWindow = null;
@@ -260,6 +329,7 @@ function watchEvents() {
 
 app.whenReady().then(() => {
   ensureDataFiles();
+  currentAppearance = readAppearance(dataDir);
   createWindow();
   createTray();
   watchEvents();
@@ -304,6 +374,18 @@ ipcMain.on("pet:open-context-menu", () => {
   const menu = buildContextMenu();
   menu.popup({ window: mainWindow });
   void syncQuotaFromClaudeStatus({ animate: false });
+});
+
+ipcMain.handle("pet:get-appearance", () => {
+  return toRendererAppearance(dataDir, currentAppearance);
+});
+
+ipcMain.handle("pet:choose-custom-appearance", async () => {
+  return chooseCustomAppearance();
+});
+
+ipcMain.handle("pet:reset-appearance", () => {
+  return applyAppearance(resetAppearance(dataDir));
 });
 
 ipcMain.on("pet:drag-move", (_event, offset) => {
