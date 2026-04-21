@@ -309,7 +309,8 @@ export default function App() {
     event.preventDefault();
     const rect = (spriteRef.current || event.currentTarget).getBoundingClientRect();
     window.petBridge.openContextMenu({
-      x: rect.right + 2,
+      leftX: rect.left - 2,
+      rightX: rect.right + 2,
       y: rect.top + (rect.height / 2)
     });
     scheduleIdle();

@@ -50,6 +50,8 @@ const REPLY_BUBBLE_MARGIN = 8;
 const REPLY_BUBBLE_TOP_OFFSET = 14;
 const REPLY_BUBBLE_HIDE_DELAY_MS = 8000;
 const REPLY_BUBBLE_HOVER_LEAVE_HIDE_DELAY_MS = 3000;
+const CONTEXT_MENU_ESTIMATED_WIDTH = 280;
+const CONTEXT_MENU_MARGIN = 10;
 const TIME_ZONE_OPTIONS = {
   system: {
     label: "System",
@@ -1138,20 +1140,47 @@ async function chooseCustomAppearance() {
 
 function getContextMenuAnchor(anchor) {
   const fallback = {
-    x: WINDOW_SIZE - 8,
+    leftX: 12,
+    rightX: WINDOW_SIZE - 8,
     y: Math.round(WINDOW_SIZE / 2)
   };
 
   if (!anchor || typeof anchor !== "object") {
-    return fallback;
+    return {
+      x: fallback.rightX,
+      y: fallback.y
+    };
   }
 
-  const x = Number.isFinite(anchor.x) ? Math.round(anchor.x) : fallback.x;
+  const leftX = Number.isFinite(anchor.leftX) ? Math.round(anchor.leftX) : fallback.leftX;
+  const rightX = Number.isFinite(anchor.rightX) ? Math.round(anchor.rightX) : fallback.rightX;
   const y = Number.isFinite(anchor.y) ? Math.round(anchor.y) : fallback.y;
+  const clampedY = Math.min(WINDOW_SIZE - 4, Math.max(0, y));
+
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return {
+      x: rightX,
+      y: clampedY
+    };
+  }
+
+  const windowBounds = mainWindow.getBounds();
+  const anchorScreenPoint = {
+    x: windowBounds.x + rightX,
+    y: windowBounds.y + clampedY
+  };
+  const display = screen.getDisplayNearestPoint(anchorScreenPoint);
+  const workArea = display.workArea;
+  const rightSpace = workArea.x + workArea.width - (windowBounds.x + rightX);
+  const leftSpace = (windowBounds.x + leftX) - workArea.x;
+  const shouldOpenOnLeft = rightSpace < CONTEXT_MENU_ESTIMATED_WIDTH && leftSpace > rightSpace;
+  const x = shouldOpenOnLeft
+    ? leftX - CONTEXT_MENU_ESTIMATED_WIDTH - CONTEXT_MENU_MARGIN
+    : rightX + CONTEXT_MENU_MARGIN;
 
   return {
-    x: Math.min(WINDOW_SIZE - 4, Math.max(0, x)),
-    y: Math.min(WINDOW_SIZE - 4, Math.max(0, y))
+    x,
+    y: clampedY
   };
 }
 
