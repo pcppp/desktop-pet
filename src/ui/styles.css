@@ -220,7 +220,10 @@ select {
 .custom-pet-image {
   position: relative;
   display: block;
-  image-rendering: pixelated;
+  max-width: 132px;
+  max-height: 132px;
+  width: auto;
+  height: auto;
   object-fit: contain;
   -webkit-user-drag: none;
   user-drag: none;

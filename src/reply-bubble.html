@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Reply Bubble</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: rgba(255, 248, 236, 0.98);
+        --border: rgba(53, 34, 20, 0.92);
+        --shadow: rgba(33, 20, 11, 0.22);
+        --text: #2f1b11;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: transparent;
+        font-family: "Avenir Next", "PingFang SC", sans-serif;
+      }
+
+      body {
+        padding: 10px;
+      }
+
+      #bubble {
+        width: 100%;
+        height: 100%;
+        border: 2px solid var(--border);
+        border-radius: 14px;
+        background: var(--bg);
+        box-shadow: 0 14px 34px var(--shadow);
+        color: var(--text);
+        overflow: hidden;
+      }
+
+      #content {
+        width: 100%;
+        height: 100%;
+        padding: 14px 16px;
+        overflow: auto;
+        font-size: 13px;
+        line-height: 1.55;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      #content.collapsed {
+        display: -webkit-box;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
+        -webkit-box-orient: vertical;
+      }
+
+      #content::-webkit-scrollbar {
+        width: 8px;
+      }
+
+      #content::-webkit-scrollbar-thumb {
+        background: rgba(74, 49, 31, 0.28);
+        border-radius: 999px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="bubble">
+      <div id="content" class="collapsed"></div>
+    </div>
+    <script>
+      const content = document.getElementById("content");
+      let expanded = false;
+
+      function setExpanded(nextExpanded) {
+        expanded = nextExpanded;
+        content.classList.toggle("collapsed", !expanded);
+      }
+
+      function truncateToTwoLines(text) {
+        const normalized = String(text || "").replace(/\s+\n/g, "\n").trim();
+        const lines = normalized.split(/\n+/).filter(Boolean);
+
+        if (lines.length <= 2) {
+          return normalized;
+        }
+
+        return `${lines.slice(0, 2).join("\n")}...`;
+      }
+
+      window.replyBubbleBridge.onShow((payload) => {
+        const fullText = String(payload && payload.fullText ? payload.fullText : "");
+        const previewText = String(payload && payload.previewText ? payload.previewText : truncateToTwoLines(fullText));
+        content.textContent = expanded ? fullText : previewText;
+        content.dataset.fullText = fullText;
+        content.dataset.previewText = previewText;
+        content.scrollTop = 0;
+        setExpanded(false);
+      });
+
+      window.replyBubbleBridge.onHide(() => {
+        setExpanded(false);
+        content.scrollTop = 0;
+      });
+
+      document.body.addEventListener("mouseenter", () => {
+        setExpanded(true);
+        content.textContent = content.dataset.fullText || content.textContent;
+        window.replyBubbleBridge.hovered(true);
+      });
+
+      document.body.addEventListener("mouseleave", () => {
+        setExpanded(false);
+        content.textContent = content.dataset.previewText || content.textContent;
+        content.scrollTop = 0;
+        window.replyBubbleBridge.hovered(false);
+      });
+    </script>
+  </body>
+  </html>

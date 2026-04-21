@@ -3,17 +3,6 @@ import replyFinishedDefaultUrl from "../assets/reply-finished-default.mp3";
 
 const IDLE_TIMEOUT_MS = 15000;
 const DRAG_SOUND_THROTTLE_MS = 180;
-const PIXEL_WIDTH = 20;
-const PIXEL_HEIGHT = 20;
-const CUSTOM_PIXEL_SCALE = 5;
-const CUSTOM_PIXEL_COLOR_LEVELS = 3;
-const CUSTOM_PIXEL_COLOR_MERGE_DISTANCE = 144;
-const WHITE_BG_THRESHOLD = 246;
-const WHITE_BG_MAX_SPREAD = 18;
-const ISOLATED_WHITE_THRESHOLD = 228;
-const ISOLATED_WHITE_MAX_SPREAD = 42;
-const ISOLATED_WHITE_MIN_OPAQUE_NEIGHBORS = 3;
-const EYE_PIXEL_DARK_VALUE = 24;
 const DEFAULT_SOUND_SETTINGS = {
   masterMuted: false,
   masterVolume: 75,
@@ -44,432 +33,6 @@ const DEFAULT_SOUND_PATTERNS = {
 const DEFAULT_SOUND_ASSETS = {
   replyFinished: replyFinishedDefaultUrl
 };
-
-function quantizeChannel(value, levels = CUSTOM_PIXEL_COLOR_LEVELS) {
-  if (levels <= 1) {
-    return value;
-  }
-
-  const step = 255 / (levels - 1);
-  return Math.round(Math.round(value / step) * step);
-}
-
-function clampByte(value) {
-  return Math.max(0, Math.min(255, Math.round(value)));
-}
-
-function isNearWhiteBackground(data, pixelIndex) {
-  const red = data[pixelIndex];
-  const green = data[pixelIndex + 1];
-  const blue = data[pixelIndex + 2];
-  const alpha = data[pixelIndex + 3];
-  const spread = Math.max(red, green, blue) - Math.min(red, green, blue);
-  const brightness = (red + green + blue) / 3;
-
-  return alpha >= 200 && brightness >= WHITE_BG_THRESHOLD && spread <= WHITE_BG_MAX_SPREAD;
-}
-
-function removeEdgeConnectedWhiteBackground(imageData, width, height) {
-  const { data } = imageData;
-  const queue = [];
-  const visited = new Uint8Array(width * height);
-
-  const enqueueIfNeeded = (x, y) => {
-    if (x < 0 || x >= width || y < 0 || y >= height) {
-      return;
-    }
-
-    const flatIndex = (y * width) + x;
-    if (visited[flatIndex] === 1) {
-      return;
-    }
-
-    const pixelIndex = flatIndex * 4;
-    if (!isNearWhiteBackground(data, pixelIndex)) {
-      return;
-    }
-
-    visited[flatIndex] = 1;
-    queue.push(flatIndex);
-  };
-
-  for (let x = 0; x < width; x += 1) {
-    enqueueIfNeeded(x, 0);
-    enqueueIfNeeded(x, height - 1);
-  }
-
-  for (let y = 1; y < height - 1; y += 1) {
-    enqueueIfNeeded(0, y);
-    enqueueIfNeeded(width - 1, y);
-  }
-
-  while (queue.length > 0) {
-    const flatIndex = queue.shift();
-    const x = flatIndex % width;
-    const y = Math.floor(flatIndex / width);
-    const pixelIndex = flatIndex * 4;
-
-    data[pixelIndex] = 0;
-    data[pixelIndex + 1] = 0;
-    data[pixelIndex + 2] = 0;
-    data[pixelIndex + 3] = 0;
-
-    enqueueIfNeeded(x + 1, y);
-    enqueueIfNeeded(x - 1, y);
-    enqueueIfNeeded(x, y + 1);
-    enqueueIfNeeded(x, y - 1);
-  }
-
-  return imageData;
-}
-
-function exaggerateHighContrastColor(red, green, blue) {
-  const spread = Math.max(red, green, blue) - Math.min(red, green, blue);
-  const average = (red + green + blue) / 3;
-
-  if (spread < 42) {
-    return { red, green, blue };
-  }
-
-  const boost = 1.16 + Math.min(0.42, (spread - 42) / 180);
-
-  return {
-    red: clampByte(average + ((red - average) * boost)),
-    green: clampByte(average + ((green - average) * boost)),
-    blue: clampByte(average + ((blue - average) * boost))
-  };
-}
-
-function colorDistance(colorA, colorB) {
-  const redDelta = colorA.red - colorB.red;
-  const greenDelta = colorA.green - colorB.green;
-  const blueDelta = colorA.blue - colorB.blue;
-
-  return Math.sqrt((redDelta ** 2) + (greenDelta ** 2) + (blueDelta ** 2));
-}
-
-function mergeNearbyPaletteColors(imageData, mergeDistance = CUSTOM_PIXEL_COLOR_MERGE_DISTANCE) {
-  const { data } = imageData;
-  const colors = new Map();
-
-  for (let index = 0; index < data.length; index += 4) {
-    if (data[index + 3] < 24) {
-      continue;
-    }
-
-    const key = `${data[index]},${data[index + 1]},${data[index + 2]}`;
-    const current = colors.get(key);
-
-    if (current) {
-      current.count += 1;
-      continue;
-    }
-
-    colors.set(key, {
-      key,
-      red: data[index],
-      green: data[index + 1],
-      blue: data[index + 2],
-      count: 1
-    });
-  }
-
-  const palette = Array.from(colors.values()).sort((left, right) => right.count - left.count);
-  const clusters = [];
-  const colorMap = new Map();
-
-  for (const color of palette) {
-    const matchedCluster = clusters.find((cluster) => colorDistance(color, cluster) <= mergeDistance);
-
-    if (matchedCluster) {
-      colorMap.set(color.key, matchedCluster);
-      continue;
-    }
-
-    const nextCluster = {
-      red: color.red,
-      green: color.green,
-      blue: color.blue
-    };
-    clusters.push(nextCluster);
-    colorMap.set(color.key, nextCluster);
-  }
-
-  for (let index = 0; index < data.length; index += 4) {
-    if (data[index + 3] < 24) {
-      continue;
-    }
-
-    const mappedColor = colorMap.get(`${data[index]},${data[index + 1]},${data[index + 2]}`);
-    if (!mappedColor) {
-      continue;
-    }
-
-    data[index] = mappedColor.red;
-    data[index + 1] = mappedColor.green;
-    data[index + 2] = mappedColor.blue;
-  }
-
-  return imageData;
-}
-
-function isNearWhitePixel(data, pixelIndex) {
-  const red = data[pixelIndex];
-  const green = data[pixelIndex + 1];
-  const blue = data[pixelIndex + 2];
-  const alpha = data[pixelIndex + 3];
-  const spread = Math.max(red, green, blue) - Math.min(red, green, blue);
-  const brightness = (red + green + blue) / 3;
-
-  return alpha >= 200 && brightness >= ISOLATED_WHITE_THRESHOLD && spread <= ISOLATED_WHITE_MAX_SPREAD;
-}
-
-function getCenteredEyePixels(seedX, seedY, width, height, sourceData) {
-  const pixels = [];
-
-  for (let offsetY = -1; offsetY <= 1; offsetY += 1) {
-    for (let offsetX = -1; offsetX <= 1; offsetX += 1) {
-      const x = seedX + offsetX;
-      const y = seedY + offsetY;
-
-      if (x < 0 || x >= width || y < 0 || y >= height) {
-        continue;
-      }
-
-      const pixelIndex = ((y * width) + x) * 4;
-      if (sourceData[pixelIndex + 3] < 64) {
-        continue;
-      }
-
-      pixels.push({ x, y });
-    }
-  }
-
-  if (pixels.length > 0) {
-    return pixels;
-  }
-
-  return [{ x: seedX, y: seedY }];
-}
-
-function turnIsolatedWhitePixelsBlack(imageData, width, height) {
-  const { data } = imageData;
-  const sourceData = new Uint8ClampedArray(data);
-  const eyeSeeds = [];
-
-  for (let y = 1; y < height - 1; y += 1) {
-    for (let x = 1; x < width - 1; x += 1) {
-      const pixelIndex = ((y * width) + x) * 4;
-
-      if (!isNearWhitePixel(data, pixelIndex)) {
-        continue;
-      }
-
-      let whiteNeighbors = 0;
-      let opaqueNeighbors = 0;
-
-      for (let offsetY = -1; offsetY <= 1; offsetY += 1) {
-        for (let offsetX = -1; offsetX <= 1; offsetX += 1) {
-          if (offsetX === 0 && offsetY === 0) {
-            continue;
-          }
-
-          const neighborIndex = ((((y + offsetY) * width) + (x + offsetX)) * 4);
-          if (data[neighborIndex + 3] >= 64) {
-            opaqueNeighbors += 1;
-          }
-
-          if (isNearWhitePixel(data, neighborIndex)) {
-            whiteNeighbors += 1;
-          }
-        }
-      }
-
-      if (whiteNeighbors === 0 && opaqueNeighbors >= ISOLATED_WHITE_MIN_OPAQUE_NEIGHBORS) {
-        eyeSeeds.push({ x, y });
-      }
-    }
-  }
-
-  for (const seed of eyeSeeds) {
-    const expandedPixels = getCenteredEyePixels(seed.x, seed.y, width, height, sourceData);
-
-    for (const pixel of expandedPixels) {
-      const pixelIndex = ((pixel.y * width) + pixel.x) * 4;
-      data[pixelIndex] = EYE_PIXEL_DARK_VALUE;
-      data[pixelIndex + 1] = EYE_PIXEL_DARK_VALUE;
-      data[pixelIndex + 2] = EYE_PIXEL_DARK_VALUE;
-      data[pixelIndex + 3] = 255;
-    }
-  }
-
-  return imageData;
-}
-
-function createPixelArtDataUrl(imageSource, size = { width: PIXEL_WIDTH, height: PIXEL_HEIGHT }) {
-  return new Promise((resolve, reject) => {
-    const image = new window.Image();
-    image.onload = () => {
-      const sourceWidth = image.naturalWidth || image.width;
-      const sourceHeight = image.naturalHeight || image.height;
-      const targetWidth = size.width;
-      const targetHeight = size.height;
-      const sourceCanvas = document.createElement("canvas");
-      sourceCanvas.width = sourceWidth;
-      sourceCanvas.height = sourceHeight;
-      const sourceContext = sourceCanvas.getContext("2d", { willReadFrequently: true });
-
-      if (!sourceContext) {
-        reject(new Error("Canvas is not available"));
-        return;
-      }
-
-      sourceContext.clearRect(0, 0, sourceWidth, sourceHeight);
-      sourceContext.imageSmoothingEnabled = false;
-      sourceContext.drawImage(image, 0, 0);
-
-      const sourceImageData = removeEdgeConnectedWhiteBackground(
-        sourceContext.getImageData(0, 0, sourceWidth, sourceHeight),
-        sourceWidth,
-        sourceHeight
-      );
-      sourceContext.putImageData(sourceImageData, 0, 0);
-      const sourceBounds = findOpaqueBounds(sourceImageData, sourceWidth, sourceHeight);
-
-      const sampleCanvas = document.createElement("canvas");
-      sampleCanvas.width = targetWidth;
-      sampleCanvas.height = targetHeight;
-      const sampleContext = sampleCanvas.getContext("2d", { willReadFrequently: true });
-
-      if (!sampleContext) {
-        reject(new Error("Canvas is not available"));
-        return;
-      }
-
-      sampleContext.clearRect(0, 0, targetWidth, targetHeight);
-      sampleContext.imageSmoothingEnabled = false;
-
-      const sourceRatio = sourceBounds.width / sourceBounds.height;
-      const targetRatio = targetWidth / targetHeight;
-
-      let drawWidth = targetWidth;
-      let drawHeight = targetHeight;
-      let drawX = 0;
-      let drawY = 0;
-
-      if (sourceRatio > targetRatio) {
-        drawHeight = targetHeight;
-        drawWidth = targetHeight * sourceRatio;
-        drawX = (targetWidth - drawWidth) / 2;
-      } else {
-        drawWidth = targetWidth;
-        drawHeight = targetWidth / sourceRatio;
-        drawY = (targetHeight - drawHeight) / 2;
-      }
-
-      sampleContext.drawImage(
-        sourceCanvas,
-        sourceBounds.x,
-        sourceBounds.y,
-        sourceBounds.width,
-        sourceBounds.height,
-        drawX,
-        drawY,
-        drawWidth,
-        drawHeight
-      );
-
-      const imageData = sampleContext.getImageData(0, 0, targetWidth, targetHeight);
-      const { data } = imageData;
-
-      for (let index = 0; index < data.length; index += 4) {
-        const alpha = data[index + 3];
-
-        if (alpha < 24) {
-          data[index] = 0;
-          data[index + 1] = 0;
-          data[index + 2] = 0;
-          data[index + 3] = 0;
-          continue;
-        }
-
-        const boostedColor = exaggerateHighContrastColor(
-          data[index],
-          data[index + 1],
-          data[index + 2]
-        );
-
-        data[index] = quantizeChannel(boostedColor.red, CUSTOM_PIXEL_COLOR_LEVELS);
-        data[index + 1] = quantizeChannel(boostedColor.green, CUSTOM_PIXEL_COLOR_LEVELS);
-        data[index + 2] = quantizeChannel(boostedColor.blue, CUSTOM_PIXEL_COLOR_LEVELS);
-        data[index + 3] = alpha >= 64 ? 255 : 0;
-      }
-
-      mergeNearbyPaletteColors(imageData);
-      turnIsolatedWhitePixelsBlack(imageData, targetWidth, targetHeight);
-      sampleContext.putImageData(imageData, 0, 0);
-
-      const outputCanvas = document.createElement("canvas");
-      outputCanvas.width = targetWidth;
-      outputCanvas.height = targetHeight;
-      const outputContext = outputCanvas.getContext("2d");
-
-      if (!outputContext) {
-        reject(new Error("Canvas is not available"));
-        return;
-      }
-
-      outputContext.imageSmoothingEnabled = false;
-      outputContext.clearRect(0, 0, targetWidth, targetHeight);
-      outputContext.drawImage(sampleCanvas, 0, 0);
-
-      resolve(outputCanvas.toDataURL("image/png"));
-    };
-    image.onerror = () => {
-      reject(new Error("Unable to process the selected image"));
-    };
-    image.src = imageSource;
-  });
-}
-
-function findOpaqueBounds(imageData, width, height) {
-  const { data } = imageData;
-  let minX = width;
-  let minY = height;
-  let maxX = -1;
-  let maxY = -1;
-
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const alpha = data[((y * width) + x) * 4 + 3];
-
-      if (alpha < 24) {
-        continue;
-      }
-
-      minX = Math.min(minX, x);
-      minY = Math.min(minY, y);
-      maxX = Math.max(maxX, x);
-      maxY = Math.max(maxY, y);
-    }
-  }
-
-  if (maxX < minX || maxY < minY) {
-    return {
-      x: 0,
-      y: 0,
-      width,
-      height
-    };
-  }
-
-  return {
-    x: minX,
-    y: minY,
-    width: Math.max(1, maxX - minX + 1),
-    height: Math.max(1, maxY - minY + 1)
-  };
-}
 
 function DefaultPixelPet() {
   return (
@@ -502,11 +65,7 @@ export default function App() {
     sourceImageLabel: null,
     sourceDataUrl: null
   });
-  const [customSpriteUrl, setCustomSpriteUrl] = useState(null);
-  const [appearanceError, setAppearanceError] = useState("");
   const [soundSettings, setSoundSettings] = useState(DEFAULT_SOUND_SETTINGS);
-  const latestAppearanceJobRef = useRef(0);
-  const lastAppearanceKeyRef = useRef("");
   const spriteRef = useRef(null);
   const audioContextRef = useRef(null);
   const dragSoundAtRef = useRef(0);
@@ -649,38 +208,6 @@ export default function App() {
     const syncAppearance = async (nextAppearance) => {
       const appearancePayload = nextAppearance || await window.petBridge.getAppearance();
       setAppearance(appearancePayload);
-
-      if (!appearancePayload || appearancePayload.mode !== "custom" || !appearancePayload.sourceDataUrl) {
-        lastAppearanceKeyRef.current = "";
-        setCustomSpriteUrl(null);
-        setAppearanceError("");
-        return;
-      }
-
-      const nextAppearanceKey = `${appearancePayload.updatedAt || ""}:${appearancePayload.sourceDataUrl}`;
-      if (lastAppearanceKeyRef.current === nextAppearanceKey) {
-        return;
-      }
-
-      lastAppearanceKeyRef.current = nextAppearanceKey;
-      setAppearanceError("");
-
-      const jobId = latestAppearanceJobRef.current + 1;
-      latestAppearanceJobRef.current = jobId;
-
-      try {
-        const pixelArtDataUrl = await createPixelArtDataUrl(appearancePayload.sourceDataUrl);
-        if (latestAppearanceJobRef.current !== jobId) {
-          return;
-        }
-        setCustomSpriteUrl(pixelArtDataUrl);
-      } catch (error) {
-        if (latestAppearanceJobRef.current !== jobId) {
-          return;
-        }
-        setCustomSpriteUrl(null);
-        setAppearanceError(error.message);
-      }
     };
 
     const syncSoundSettings = async (nextSoundSettings) => {
@@ -788,8 +315,6 @@ export default function App() {
     scheduleIdle();
   };
 
-  const pixelScale = appearance.mode === "custom" ? CUSTOM_PIXEL_SCALE : 1;
-
   return (
     <main id="pet-root">
       <div
@@ -801,17 +326,16 @@ export default function App() {
         onContextMenu={handleContextMenu}
       >
         <div className="pet-shadow"></div>
-        {appearance.mode === "custom" && customSpriteUrl ? (
+        {appearance.mode === "custom" && appearance.sourceDataUrl ? (
           <div ref={spriteRef} className="custom-pet-shell">
             <img
               className="custom-pet-image"
-              src={customSpriteUrl}
+              src={appearance.sourceDataUrl}
               alt={appearance.sourceImageLabel || "Custom pet"}
               draggable={false}
               onDragStart={(event) => {
                 event.preventDefault();
               }}
-              style={{ width: `${PIXEL_WIDTH * pixelScale}px`, height: `${PIXEL_HEIGHT * pixelScale}px` }}
             />
             <div className="custom-pet-frame"></div>
           </div>
@@ -824,7 +348,6 @@ export default function App() {
       <div id="bubble" className={bubble ? "visible" : ""}>
         {bubble}
       </div>
-      {appearanceError ? <div id="appearance-error">{appearanceError}</div> : null}
     </main>
   );
 }

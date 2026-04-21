@@ -61,6 +61,40 @@ function isClaudeReplyFinishedRecord(record, options = {}) {
   return message.stop_reason === "end_turn";
 }
 
+function extractAssistantReplyText(record) {
+  if (!record || typeof record !== "object") {
+    return "";
+  }
+
+  const message = record.message;
+  if (!message || typeof message !== "object") {
+    return "";
+  }
+
+  if (typeof message.content === "string") {
+    return normalizeReplyText(message.content);
+  }
+
+  if (!Array.isArray(message.content)) {
+    return "";
+  }
+
+  return normalizeReplyText(
+    message.content
+      .filter((block) => block && typeof block === "object" && block.type === "text" && typeof block.text === "string")
+      .map((block) => block.text)
+      .join("\n\n")
+  );
+}
+
+function normalizeReplyText(text) {
+  return String(text || "")
+    .replace(/\r/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function createReadStreamPromise(filePath, start, end) {
   return new Promise((resolve, reject) => {
     let chunk = "";
@@ -163,7 +197,8 @@ function createClaudeTranscriptWatcher(options = {}) {
     onReplyFinished({
       filePath,
       record,
-      fileMtimeMs: stat ? stat.mtimeMs : undefined
+      fileMtimeMs: stat ? stat.mtimeMs : undefined,
+      replyText: extractAssistantReplyText(record)
     });
   }
 
@@ -368,5 +403,6 @@ function createClaudeTranscriptWatcher(options = {}) {
 
 module.exports = {
   createClaudeTranscriptWatcher,
-  isClaudeReplyFinishedRecord
+  isClaudeReplyFinishedRecord,
+  extractAssistantReplyText
 };

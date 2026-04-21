@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, dialog } = require("electron");
+const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, dialog, screen } = require("electron");
 const fs = require("fs");
 const path = require("path");
 const {
@@ -33,8 +33,14 @@ const WINDOW_SIZE = 220;
 const dataDir = path.join(__dirname, "..", "data");
 const eventPath = path.join(dataDir, "events.ndjson");
 const distPath = path.join(__dirname, "..", "dist", "index.html");
+const replyBubblePath = path.join(__dirname, "reply-bubble.html");
+const REPLY_BUBBLE_WIDTH = 340;
+const REPLY_BUBBLE_HEIGHT = 132;
+const REPLY_BUBBLE_MARGIN = 12;
+const REPLY_BUBBLE_HIDE_DELAY_MS = 4200;
 
 let mainWindow;
+let replyBubbleWindow;
 let tray;
 let currentQuota = readQuota();
 let eventWatcher;
@@ -44,6 +50,9 @@ let isQuotaRefreshing = false;
 let currentAppearance;
 let currentMenuSettings;
 let currentSoundSettings;
+let replyBubbleHideTimer;
+let isReplyBubbleHovered = false;
+let pendingReplyBubblePayload = null;
 
 function ensureDataFiles() {
   fs.mkdirSync(dataDir, { recursive: true });
@@ -315,6 +324,141 @@ function refreshTray() {
   }
 }
 
+function truncateReplyPreview(text) {
+  const normalized = String(text || "")
+    .replace(/\r/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  if (!normalized) {
+    return "";
+  }
+
+  const lines = normalized.split(/\n+/).filter(Boolean);
+  if (lines.length <= 2) {
+    return normalized;
+  }
+
+  return `${lines.slice(0, 2).join("\n")}...`;
+}
+
+function clearReplyBubbleHideTimer() {
+  if (replyBubbleHideTimer) {
+    clearTimeout(replyBubbleHideTimer);
+    replyBubbleHideTimer = undefined;
+  }
+}
+
+function scheduleReplyBubbleHide(delayMs = REPLY_BUBBLE_HIDE_DELAY_MS) {
+  clearReplyBubbleHideTimer();
+  replyBubbleHideTimer = setTimeout(() => {
+    if (isReplyBubbleHovered) {
+      return;
+    }
+
+    if (replyBubbleWindow && !replyBubbleWindow.isDestroyed()) {
+      replyBubbleWindow.webContents.send("reply-bubble:hide");
+      replyBubbleWindow.hide();
+    }
+  }, delayMs);
+}
+
+function ensureReplyBubbleWindow() {
+  if (replyBubbleWindow && !replyBubbleWindow.isDestroyed()) {
+    return replyBubbleWindow;
+  }
+
+  replyBubbleWindow = new BrowserWindow({
+    width: REPLY_BUBBLE_WIDTH,
+    height: REPLY_BUBBLE_HEIGHT,
+    show: false,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    skipTaskbar: true,
+    hasShadow: false,
+    alwaysOnTop: true,
+    webPreferences: {
+      preload: path.join(__dirname, "reply-bubble-preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+
+  replyBubbleWindow.setAlwaysOnTop(true, "floating");
+  replyBubbleWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  replyBubbleWindow.setMenuBarVisibility(false);
+  replyBubbleWindow.loadFile(replyBubblePath);
+  replyBubbleWindow.webContents.on("did-finish-load", () => {
+    if (!pendingReplyBubblePayload) {
+      return;
+    }
+
+    replyBubbleWindow.webContents.send("reply-bubble:show", pendingReplyBubblePayload);
+  });
+  replyBubbleWindow.on("closed", () => {
+    replyBubbleWindow = null;
+  });
+
+  return replyBubbleWindow;
+}
+
+function getReplyBubblePosition() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return { x: 160, y: 120 };
+  }
+
+  const [windowX, windowY] = mainWindow.getPosition();
+  const [windowWidth] = mainWindow.getSize();
+  const anchorX = windowX + windowWidth + REPLY_BUBBLE_MARGIN;
+  const anchorY = windowY + 10;
+  const display = screen.getDisplayNearestPoint({ x: anchorX, y: anchorY });
+  const workArea = display.workArea;
+
+  const x = Math.min(
+    workArea.x + workArea.width - REPLY_BUBBLE_WIDTH - REPLY_BUBBLE_MARGIN,
+    Math.max(workArea.x + REPLY_BUBBLE_MARGIN, anchorX)
+  );
+  const y = Math.min(
+    workArea.y + workArea.height - REPLY_BUBBLE_HEIGHT - REPLY_BUBBLE_MARGIN,
+    Math.max(workArea.y + REPLY_BUBBLE_MARGIN, anchorY)
+  );
+
+  return { x, y };
+}
+
+function showReplyBubble(text) {
+  const fullText = String(text || "").trim();
+  if (!fullText) {
+    return;
+  }
+
+  const bubble = ensureReplyBubbleWindow();
+  const { x, y } = getReplyBubblePosition();
+  const previewText = truncateReplyPreview(fullText);
+
+  isReplyBubbleHovered = false;
+  pendingReplyBubblePayload = {
+    previewText,
+    fullText
+  };
+  bubble.setPosition(x, y);
+  bubble.setBounds({
+    x,
+    y,
+    width: REPLY_BUBBLE_WIDTH,
+    height: REPLY_BUBBLE_HEIGHT
+  });
+  bubble.showInactive();
+  if (!bubble.webContents.isLoadingMainFrame()) {
+    bubble.webContents.send("reply-bubble:show", pendingReplyBubblePayload);
+  }
+  scheduleReplyBubbleHide();
+}
+
 async function syncQuotaFromClaudeStatus(options = {}) {
   if (isQuotaRefreshing) {
     return currentQuota;
@@ -550,8 +694,9 @@ app.whenReady().then(() => {
   createTray();
   watchEvents();
   claudeTranscriptWatcher = createClaudeTranscriptWatcher({
-    onReplyFinished: () => {
+    onReplyFinished: ({ replyText }) => {
       sendAnimation("reply-finished");
+      showReplyBubble(replyText);
     }
   });
   setTimeout(() => {
@@ -584,6 +729,10 @@ app.on("before-quit", () => {
   if (quotaRefreshTimer) {
     clearInterval(quotaRefreshTimer);
   }
+  if (replyBubbleWindow && !replyBubbleWindow.isDestroyed()) {
+    replyBubbleWindow.close();
+  }
+  clearReplyBubbleHideTimer();
 });
 
 ipcMain.handle("pet:get-appearance", () => {
@@ -635,4 +784,20 @@ ipcMain.on("pet:drag-move", (_event, offset) => {
     Math.round(x + offset.deltaX),
     Math.round(y + offset.deltaY)
   );
+
+  if (replyBubbleWindow && !replyBubbleWindow.isDestroyed() && replyBubbleWindow.isVisible()) {
+    const nextPosition = getReplyBubblePosition();
+    replyBubbleWindow.setPosition(nextPosition.x, nextPosition.y);
+  }
+});
+
+ipcMain.on("reply-bubble:hovered", (_event, payload) => {
+  isReplyBubbleHovered = Boolean(payload && payload.hovered);
+
+  if (isReplyBubbleHovered) {
+    clearReplyBubbleHideTimer();
+    return;
+  }
+
+  scheduleReplyBubbleHide(250);
 });
