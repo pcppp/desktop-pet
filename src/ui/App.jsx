@@ -7,6 +7,7 @@ const PIXEL_WIDTH = 20;
 const PIXEL_HEIGHT = 20;
 const CUSTOM_PIXEL_SCALE = 5;
 const CUSTOM_PIXEL_COLOR_LEVELS = 3;
+const CUSTOM_PIXEL_COLOR_MERGE_DISTANCE = 144;
 const WHITE_BG_THRESHOLD = 246;
 const WHITE_BG_MAX_SPREAD = 18;
 const DEFAULT_SOUND_SETTINGS = {
@@ -135,6 +136,79 @@ function exaggerateHighContrastColor(red, green, blue) {
   };
 }
 
+function colorDistance(colorA, colorB) {
+  const redDelta = colorA.red - colorB.red;
+  const greenDelta = colorA.green - colorB.green;
+  const blueDelta = colorA.blue - colorB.blue;
+
+  return Math.sqrt((redDelta ** 2) + (greenDelta ** 2) + (blueDelta ** 2));
+}
+
+function mergeNearbyPaletteColors(imageData, mergeDistance = CUSTOM_PIXEL_COLOR_MERGE_DISTANCE) {
+  const { data } = imageData;
+  const colors = new Map();
+
+  for (let index = 0; index < data.length; index += 4) {
+    if (data[index + 3] < 24) {
+      continue;
+    }
+
+    const key = `${data[index]},${data[index + 1]},${data[index + 2]}`;
+    const current = colors.get(key);
+
+    if (current) {
+      current.count += 1;
+      continue;
+    }
+
+    colors.set(key, {
+      key,
+      red: data[index],
+      green: data[index + 1],
+      blue: data[index + 2],
+      count: 1
+    });
+  }
+
+  const palette = Array.from(colors.values()).sort((left, right) => right.count - left.count);
+  const clusters = [];
+  const colorMap = new Map();
+
+  for (const color of palette) {
+    const matchedCluster = clusters.find((cluster) => colorDistance(color, cluster) <= mergeDistance);
+
+    if (matchedCluster) {
+      colorMap.set(color.key, matchedCluster);
+      continue;
+    }
+
+    const nextCluster = {
+      red: color.red,
+      green: color.green,
+      blue: color.blue
+    };
+    clusters.push(nextCluster);
+    colorMap.set(color.key, nextCluster);
+  }
+
+  for (let index = 0; index < data.length; index += 4) {
+    if (data[index + 3] < 24) {
+      continue;
+    }
+
+    const mappedColor = colorMap.get(`${data[index]},${data[index + 1]},${data[index + 2]}`);
+    if (!mappedColor) {
+      continue;
+    }
+
+    data[index] = mappedColor.red;
+    data[index + 1] = mappedColor.green;
+    data[index + 2] = mappedColor.blue;
+  }
+
+  return imageData;
+}
+
 function createPixelArtDataUrl(imageSource, size = { width: PIXEL_WIDTH, height: PIXEL_HEIGHT }) {
   return new Promise((resolve, reject) => {
     const image = new window.Image();
@@ -234,6 +308,7 @@ function createPixelArtDataUrl(imageSource, size = { width: PIXEL_WIDTH, height:
         data[index + 3] = alpha >= 64 ? 255 : 0;
       }
 
+      mergeNearbyPaletteColors(imageData);
       sampleContext.putImageData(imageData, 0, 0);
 
       const outputCanvas = document.createElement("canvas");
