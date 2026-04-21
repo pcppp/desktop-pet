@@ -1,6 +1,7 @@
 node_modules/
 dist/
 data/appearance/
+data/sound/
 data/quota.json
 data/menu-settings.json
 data/status-debug.txt

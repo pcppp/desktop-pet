@@ -1,8 +1,34 @@
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 
 const IDLE_TIMEOUT_MS = 15000;
+const DRAG_SOUND_THROTTLE_MS = 180;
 const PIXEL_WIDTH = 24;
 const PIXEL_HEIGHT = 24;
+const DEFAULT_SOUND_SETTINGS = {
+  click: { mode: "default", sourceAudioLabel: null, sourceDataUrl: null },
+  replyFinished: { mode: "default", sourceAudioLabel: null, sourceDataUrl: null },
+  drag: { mode: "silent", sourceAudioLabel: null, sourceDataUrl: null },
+  idle: { mode: "silent", sourceAudioLabel: null, sourceDataUrl: null },
+  updatedAt: null
+};
+const DEFAULT_SOUND_PATTERNS = {
+  click: [
+    { frequency: 880, duration: 0.05, volume: 0.04, type: "square" },
+    { frequency: 1240, duration: 0.04, volume: 0.03, type: "square", delay: 0.055 }
+  ],
+  replyFinished: [
+    { frequency: 740, duration: 0.07, volume: 0.04, type: "triangle" },
+    { frequency: 988, duration: 0.08, volume: 0.04, type: "triangle", delay: 0.08 },
+    { frequency: 1318, duration: 0.1, volume: 0.035, type: "triangle", delay: 0.17 }
+  ],
+  drag: [
+    { frequency: 520, duration: 0.04, volume: 0.025, type: "square" }
+  ],
+  idle: [
+    { frequency: 660, duration: 0.06, volume: 0.025, type: "sine" },
+    { frequency: 550, duration: 0.08, volume: 0.02, type: "sine", delay: 0.065 }
+  ]
+};
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -137,9 +163,95 @@ export default function App() {
   });
   const [customSpriteUrl, setCustomSpriteUrl] = useState(null);
   const [appearanceError, setAppearanceError] = useState("");
+  const [soundSettings, setSoundSettings] = useState(DEFAULT_SOUND_SETTINGS);
   const latestAppearanceJobRef = useRef(0);
   const lastAppearanceKeyRef = useRef("");
   const spriteRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const dragSoundAtRef = useRef(0);
+
+  const getAudioContext = useEffectEvent(() => {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) {
+      return null;
+    }
+
+    if (!audioContextRef.current) {
+      audioContextRef.current = new AudioContextClass();
+    }
+
+    return audioContextRef.current;
+  });
+
+  const playDefaultSound = useEffectEvent(async (soundKey) => {
+    const context = getAudioContext();
+    if (!context) {
+      return;
+    }
+
+    if (context.state === "suspended") {
+      try {
+        await context.resume();
+      } catch {
+        return;
+      }
+    }
+
+    const pattern = DEFAULT_SOUND_PATTERNS[soundKey];
+    if (!pattern) {
+      return;
+    }
+
+    const baseTime = context.currentTime + 0.01;
+
+    for (const note of pattern) {
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      const startAt = baseTime + (note.delay || 0);
+      const endAt = startAt + note.duration;
+
+      oscillator.type = note.type || "sine";
+      oscillator.frequency.setValueAtTime(note.frequency, startAt);
+
+      gain.gain.setValueAtTime(0.0001, startAt);
+      gain.gain.linearRampToValueAtTime(note.volume || 0.03, startAt + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, endAt);
+
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start(startAt);
+      oscillator.stop(endAt + 0.01);
+    }
+  });
+
+  const playCustomSound = useEffectEvent(async (dataUrl) => {
+    if (!dataUrl) {
+      return;
+    }
+
+    const audio = new window.Audio(dataUrl);
+    audio.volume = 0.9;
+
+    try {
+      await audio.play();
+    } catch {
+      // Ignore playback failures to avoid surfacing noisy UI errors.
+    }
+  });
+
+  const playActionSound = useEffectEvent(async (soundKey) => {
+    const soundEntry = soundSettings[soundKey];
+    if (!soundEntry || soundEntry.mode === "silent") {
+      return;
+    }
+
+    if (soundEntry.mode === "custom" && soundEntry.sourceDataUrl) {
+      await playCustomSound(soundEntry.sourceDataUrl);
+      return;
+    }
+
+    await playDefaultSound(soundKey);
+  });
 
   const showState = useEffectEvent((nextState, text, duration = 2200) => {
     setState(nextState);
@@ -156,15 +268,23 @@ export default function App() {
     window.clearTimeout(scheduleIdle.timer);
     scheduleIdle.timer = window.setTimeout(() => {
       showState("idle", "Idle animation");
+      void playActionSound("idle");
     }, IDLE_TIMEOUT_MS);
   });
 
   useEffect(() => {
     const onMouseMove = () => scheduleIdle();
     const onKeyDown = () => scheduleIdle();
+    const unlockAudio = () => {
+      const context = getAudioContext();
+      if (context && context.state === "suspended") {
+        void context.resume().catch(() => {});
+      }
+    };
 
     document.addEventListener("mousemove", onMouseMove);
     document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("pointerdown", unlockAudio, { passive: true });
 
     const syncAppearance = async (nextAppearance) => {
       const appearancePayload = nextAppearance || await window.petBridge.getAppearance();
@@ -203,9 +323,18 @@ export default function App() {
       }
     };
 
+    const syncSoundSettings = async (nextSoundSettings) => {
+      const soundPayload = nextSoundSettings || await window.petBridge.getSoundSettings();
+      setSoundSettings({
+        ...DEFAULT_SOUND_SETTINGS,
+        ...soundPayload
+      });
+    };
+
     const disposeTrigger = window.petBridge.onTrigger((payload) => {
       if (payload.trigger === "reply-finished") {
         showState("reply", "Claude Code reply finished");
+        void playActionSound("replyFinished");
       } else if (payload.trigger === "quota-updated") {
         showState("reply", "Quota refreshed");
       }
@@ -216,21 +345,32 @@ export default function App() {
       void syncAppearance(payload);
     });
 
+    const disposeSoundSettings = window.petBridge.onSoundSettings((payload) => {
+      void syncSoundSettings(payload);
+    });
+
     void syncAppearance();
+    void syncSoundSettings();
     scheduleIdle();
 
     return () => {
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("pointerdown", unlockAudio);
       disposeTrigger();
       disposeAppearance();
+      disposeSoundSettings();
       window.clearTimeout(scheduleIdle.timer);
       window.clearTimeout(showState.hideTimer);
+      if (audioContextRef.current && audioContextRef.current.state !== "closed") {
+        void audioContextRef.current.close().catch(() => {});
+      }
     };
-  }, [scheduleIdle, showState]);
+  }, [getAudioContext, playActionSound, scheduleIdle, showState]);
 
   const handleClick = () => {
     showState("click", "Clicked");
+    void playActionSound("click");
     scheduleIdle();
   };
 
@@ -255,6 +395,10 @@ export default function App() {
       window.petBridge.dragMove(deltaX, deltaY);
       lastX = moveEvent.screenX;
       lastY = moveEvent.screenY;
+      if (Date.now() - dragSoundAtRef.current >= DRAG_SOUND_THROTTLE_MS) {
+        dragSoundAtRef.current = Date.now();
+        void playActionSound("drag");
+      }
       scheduleIdle();
     };
 

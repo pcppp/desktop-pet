@@ -19,6 +19,14 @@ const {
   readMenuSettings,
   updateMenuSettings
 } = require("./menu-settings");
+const {
+  ensureSoundStorage,
+  readSoundSettings,
+  saveCustomSound,
+  setSoundMode,
+  toRendererSoundSettings,
+  describeSoundEntry
+} = require("./pet-sound");
 
 const WINDOW_SIZE = 220;
 const dataDir = path.join(__dirname, "..", "data");
@@ -34,11 +42,13 @@ let quotaRefreshTimer;
 let isQuotaRefreshing = false;
 let currentAppearance;
 let currentMenuSettings;
+let currentSoundSettings;
 
 function ensureDataFiles() {
   fs.mkdirSync(dataDir, { recursive: true });
   ensureAppearanceStorage(dataDir);
   ensureMenuSettings(dataDir);
+  ensureSoundStorage(dataDir);
   if (!fs.existsSync(quotaPath)) {
     fs.writeFileSync(
       quotaPath,
@@ -70,6 +80,73 @@ function ensureDataFiles() {
 function setMenuSetting(key, value) {
   currentMenuSettings = updateMenuSettings(dataDir, { [key]: value });
   refreshTray();
+}
+
+function applySoundSettings(nextSoundSettings) {
+  currentSoundSettings = nextSoundSettings;
+  refreshTray();
+  sendSoundSettings();
+  return toRendererSoundSettings(dataDir, currentSoundSettings);
+}
+
+async function chooseCustomSound(soundKey) {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return null;
+  }
+
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: "Choose a sound",
+    properties: ["openFile"],
+    filters: [
+      { name: "Audio", extensions: ["mp3", "wav", "ogg", "m4a", "aac"] }
+    ]
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return null;
+  }
+
+  const nextSoundSettings = saveCustomSound(dataDir, soundKey, result.filePaths[0]);
+  return applySoundSettings(nextSoundSettings);
+}
+
+function buildSoundMenuItem(label, soundKey, fallbackLabel) {
+  return {
+    label: `${label}: ${describeSoundEntry(currentSoundSettings[soundKey], fallbackLabel)}`,
+    submenu: [
+      {
+        label: "Use Default",
+        click: () => {
+          applySoundSettings(setSoundMode(dataDir, soundKey, "default"));
+        }
+      },
+      {
+        label: "Choose Custom Audio",
+        click: async () => {
+          try {
+            await chooseCustomSound(soundKey);
+          } catch (error) {
+            console.error(`Failed to choose ${soundKey} sound:`, error);
+          }
+        }
+      },
+      {
+        label: "Mute",
+        click: () => {
+          applySoundSettings(setSoundMode(dataDir, soundKey, "silent"));
+        }
+      }
+    ]
+  };
+}
+
+function buildSoundMenu() {
+  return [
+    buildSoundMenuItem("Click", "click", "Default Click"),
+    buildSoundMenuItem("Reply Finished", "replyFinished", "Default Reply"),
+    buildSoundMenuItem("Drag", "drag", "Default Drag"),
+    buildSoundMenuItem("Idle", "idle", "Default Idle")
+  ];
 }
 
 function buildContextMenu() {
@@ -185,6 +262,11 @@ function buildContextMenu() {
         },
         { type: "separator" },
         {
+          label: "Sound",
+          submenu: buildSoundMenu()
+        },
+        { type: "separator" },
+        {
           label: "Sync Claude Status",
           click: async () => {
             void syncQuotaFromClaudeStatus();
@@ -258,6 +340,14 @@ function sendAppearance() {
   }
 
   mainWindow.webContents.send("pet:appearance", toRendererAppearance(dataDir, currentAppearance));
+}
+
+function sendSoundSettings() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+
+  mainWindow.webContents.send("pet:sound-settings", toRendererSoundSettings(dataDir, currentSoundSettings));
 }
 
 function applyAppearance(nextAppearance) {
@@ -338,6 +428,7 @@ function createWindow() {
 
   mainWindow.webContents.on("did-finish-load", () => {
     sendAppearance();
+    sendSoundSettings();
   });
 
   mainWindow.on("closed", () => {
@@ -433,6 +524,7 @@ app.whenReady().then(() => {
   ensureDataFiles();
   currentAppearance = readAppearance(dataDir);
   currentMenuSettings = readMenuSettings(dataDir);
+  currentSoundSettings = readSoundSettings(dataDir);
   createWindow();
   createTray();
   watchEvents();
@@ -477,8 +569,20 @@ ipcMain.handle("pet:get-appearance", () => {
   return toRendererAppearance(dataDir, currentAppearance);
 });
 
+ipcMain.handle("pet:get-sound-settings", () => {
+  return toRendererSoundSettings(dataDir, currentSoundSettings);
+});
+
 ipcMain.handle("pet:choose-custom-appearance", async () => {
   return chooseCustomAppearance();
+});
+
+ipcMain.handle("pet:choose-custom-sound", async (_event, soundKey) => {
+  return chooseCustomSound(soundKey);
+});
+
+ipcMain.handle("pet:set-sound-mode", (_event, soundKey, mode) => {
+  return applySoundSettings(setSoundMode(dataDir, soundKey, mode));
 });
 
 ipcMain.handle("pet:reset-appearance", () => {
