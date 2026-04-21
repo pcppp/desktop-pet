@@ -50,8 +50,9 @@ const REPLY_BUBBLE_MARGIN = 8;
 const REPLY_BUBBLE_TOP_OFFSET = 14;
 const REPLY_BUBBLE_HIDE_DELAY_MS = 8000;
 const REPLY_BUBBLE_HOVER_LEAVE_HIDE_DELAY_MS = 3000;
-const CONTEXT_MENU_ESTIMATED_WIDTH = 280;
-const CONTEXT_MENU_MARGIN = 10;
+const CONTEXT_MENU_ESTIMATED_WIDTH = 220;
+const CONTEXT_MENU_RIGHT_MARGIN = 10;
+const CONTEXT_MENU_LEFT_MARGIN = 2;
 const TIME_ZONE_OPTIONS = {
   system: {
     label: "System",
@@ -1175,8 +1176,8 @@ function getContextMenuAnchor(anchor) {
   const leftSpace = (windowBounds.x + leftX) - workArea.x;
   const shouldOpenOnLeft = rightSpace < CONTEXT_MENU_ESTIMATED_WIDTH && leftSpace > rightSpace;
   const x = shouldOpenOnLeft
-    ? leftX - CONTEXT_MENU_ESTIMATED_WIDTH - CONTEXT_MENU_MARGIN
-    : rightX + CONTEXT_MENU_MARGIN;
+    ? leftX - CONTEXT_MENU_ESTIMATED_WIDTH - CONTEXT_MENU_LEFT_MARGIN
+    : rightX + CONTEXT_MENU_RIGHT_MARGIN;
 
   return {
     x,
