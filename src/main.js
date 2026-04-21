@@ -14,6 +14,11 @@ const {
   saveCustomAppearance,
   toRendererAppearance
 } = require("./pet-appearance");
+const {
+  ensureMenuSettings,
+  readMenuSettings,
+  updateMenuSettings
+} = require("./menu-settings");
 
 const WINDOW_SIZE = 220;
 const dataDir = path.join(__dirname, "..", "data");
@@ -28,10 +33,12 @@ let claudeTranscriptWatcher;
 let quotaRefreshTimer;
 let isQuotaRefreshing = false;
 let currentAppearance;
+let currentMenuSettings;
 
 function ensureDataFiles() {
   fs.mkdirSync(dataDir, { recursive: true });
   ensureAppearanceStorage(dataDir);
+  ensureMenuSettings(dataDir);
   if (!fs.existsSync(quotaPath)) {
     fs.writeFileSync(
       quotaPath,
@@ -60,6 +67,11 @@ function ensureDataFiles() {
   }
 }
 
+function setMenuSetting(key, value) {
+  currentMenuSettings = updateMenuSettings(dataDir, { [key]: value });
+  refreshTray();
+}
+
 function buildContextMenu() {
   const weekly = currentQuota.weekly.display;
   const fiveHour = currentQuota.fiveHour.display;
@@ -69,51 +81,132 @@ function buildContextMenu() {
   const loadingLabel = isQuotaRefreshing
     ? "Quota Sync: Loading..."
     : "Quota Sync: Ready";
-
-  return Menu.buildFromTemplate([
-    { label: loadingLabel, enabled: false },
-    { label: `5h Usage: ${fiveHour}`, enabled: false },
-    { label: currentQuota.fiveHour.menuLabel || `5-hour limit reset in ${currentQuota.fiveHour.resetsAt}`, enabled: false },
-    { label: `Week Usage: ${weekly}`, enabled: false },
-    { label: currentQuota.weekly.menuLabel || `Weekly Limits Resets ${currentQuota.weekly.resetsAt}`, enabled: false },
-    { label: `Quota Source: ${source}`, enabled: false },
-    { label: `Updated: ${currentQuota.updatedAt}`, enabled: false },
-    { type: "separator" },
+  const mainMenuItems = [
     {
+      label: currentQuota.fiveHour.menuLabel || `5小时 limit reset in ${currentQuota.fiveHour.resetsAt}`,
+      enabled: false
+    },
+    {
+      label: currentQuota.weekly.menuLabel || `Weekly Limits Resets ${currentQuota.weekly.resetsAt}`,
+      enabled: false
+    }
+  ];
+
+  if (currentMenuSettings.showFiveHourUsageInMainMenu) {
+    mainMenuItems.push({ label: `5h Usage: ${fiveHour}`, enabled: false });
+  }
+
+  if (currentMenuSettings.showWeeklyUsageInMainMenu) {
+    mainMenuItems.push({ label: `Week Usage: ${weekly}`, enabled: false });
+  }
+
+  if (currentMenuSettings.showQuotaSourceInMainMenu) {
+    mainMenuItems.push({ label: `Quota Source: ${source}`, enabled: false });
+  }
+
+  if (currentMenuSettings.showUpdatedAtInMainMenu) {
+    mainMenuItems.push({ label: `Updated: ${currentQuota.updatedAt}`, enabled: false });
+  }
+
+  if (currentMenuSettings.showPetImageInMainMenu) {
+    mainMenuItems.push({
       label: currentAppearance && currentAppearance.mode === "custom"
         ? `Pet Image: ${currentAppearance.sourceImageLabel || "Custom"}`
         : "Pet Image: Default Pixel Pet",
       enabled: false
-    },
-    {
-      label: "Choose Custom Pet Image",
-      click: async () => {
-        try {
-          await chooseCustomAppearance();
-        } catch (error) {
-          console.error("Failed to choose custom pet image:", error);
-        }
-      }
-    },
-    {
-      label: "Reset Pet Image",
-      enabled: currentAppearance && currentAppearance.mode === "custom",
-      click: () => {
-        applyAppearance(resetAppearance(dataDir));
-      }
-    },
+    });
+  }
+
+  return Menu.buildFromTemplate([
+    ...mainMenuItems,
     { type: "separator" },
     {
-      label: "Trigger Reply Finished",
-      click: () => {
-        sendAnimation("reply-finished");
-      }
-    },
-    {
-      label: "Sync Claude Status",
-      click: async () => {
-        void syncQuotaFromClaudeStatus();
-      }
+      label: "Settings",
+      submenu: [
+        { label: loadingLabel, enabled: false },
+        { label: `5h Usage: ${fiveHour}`, enabled: false },
+        { label: `Week Usage: ${weekly}`, enabled: false },
+        { label: `Quota Source: ${source}`, enabled: false },
+        { label: `Updated: ${currentQuota.updatedAt}`, enabled: false },
+        {
+          label: currentAppearance && currentAppearance.mode === "custom"
+            ? `Pet Image: ${currentAppearance.sourceImageLabel || "Custom"}`
+            : "Pet Image: Default Pixel Pet",
+          enabled: false
+        },
+        { type: "separator" },
+        {
+          label: "Show 5h Usage In Main Menu",
+          type: "checkbox",
+          checked: currentMenuSettings.showFiveHourUsageInMainMenu,
+          click: (item) => {
+            setMenuSetting("showFiveHourUsageInMainMenu", item.checked);
+          }
+        },
+        {
+          label: "Show Weekly Usage In Main Menu",
+          type: "checkbox",
+          checked: currentMenuSettings.showWeeklyUsageInMainMenu,
+          click: (item) => {
+            setMenuSetting("showWeeklyUsageInMainMenu", item.checked);
+          }
+        },
+        {
+          label: "Show Quota Source In Main Menu",
+          type: "checkbox",
+          checked: currentMenuSettings.showQuotaSourceInMainMenu,
+          click: (item) => {
+            setMenuSetting("showQuotaSourceInMainMenu", item.checked);
+          }
+        },
+        {
+          label: "Show Updated Time In Main Menu",
+          type: "checkbox",
+          checked: currentMenuSettings.showUpdatedAtInMainMenu,
+          click: (item) => {
+            setMenuSetting("showUpdatedAtInMainMenu", item.checked);
+          }
+        },
+        {
+          label: "Show Pet Image In Main Menu",
+          type: "checkbox",
+          checked: currentMenuSettings.showPetImageInMainMenu,
+          click: (item) => {
+            setMenuSetting("showPetImageInMainMenu", item.checked);
+          }
+        },
+        { type: "separator" },
+        {
+          label: "Choose Custom Pet Image",
+          click: async () => {
+            try {
+              await chooseCustomAppearance();
+            } catch (error) {
+              console.error("Failed to choose custom pet image:", error);
+            }
+          }
+        },
+        {
+          label: "Reset Pet Image",
+          enabled: currentAppearance && currentAppearance.mode === "custom",
+          click: () => {
+            applyAppearance(resetAppearance(dataDir));
+          }
+        },
+        { type: "separator" },
+        {
+          label: "Sync Claude Status",
+          click: async () => {
+            void syncQuotaFromClaudeStatus();
+          }
+        },
+        {
+          label: "Trigger Reply Finished",
+          click: () => {
+            sendAnimation("reply-finished");
+          }
+        }
+      ]
     },
     { type: "separator" },
     {
@@ -349,6 +442,7 @@ function watchEvents() {
 app.whenReady().then(() => {
   ensureDataFiles();
   currentAppearance = readAppearance(dataDir);
+  currentMenuSettings = readMenuSettings(dataDir);
   createWindow();
   createTray();
   watchEvents();

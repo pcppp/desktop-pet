@@ -171,9 +171,10 @@ function humanizeResetText(text) {
 }
 
 function buildBucket(label, usedPercent, resetsAt) {
+  const menuResetsAt = formatResetForMenu(resetsAt);
   const menuLabel = label === "Current session"
-    ? `5-hour limit reset in ${resetsAt}`
-    : `Weekly Limits Resets ${resetsAt}`;
+    ? `5小时 limit reset in ${menuResetsAt}`
+    : `Weekly Limits Resets ${menuResetsAt}`;
 
   return {
     label,
@@ -182,6 +183,27 @@ function buildBucket(label, usedPercent, resetsAt) {
     resetsAt,
     menuLabel
   };
+}
+
+function formatResetForMenu(resetsAt) {
+  const normalized = String(resetsAt || "Unknown")
+    .replace(/\(Asia\/Shanghai\)/gi, "")
+    .replace(/\bat\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const timeMatch = normalized.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i);
+  if (!timeMatch) {
+    return normalized || "Unknown";
+  }
+
+  const hour = timeMatch[1];
+  const minute = timeMatch[2] || "00";
+  const period = timeMatch[3].toUpperCase();
+  const formattedTime = `${hour}:${minute} ${period}`;
+
+  const prefix = normalized.slice(0, timeMatch.index).trim();
+  return prefix ? `${prefix} ${formattedTime}` : formattedTime;
 }
 
 function extractBucketFromCompactText(compactText, pattern, label) {
