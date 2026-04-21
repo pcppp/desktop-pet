@@ -7,7 +7,8 @@ function createDefaultMenuSettings() {
     showWeeklyUsageInMainMenu: false,
     showQuotaSourceInMainMenu: false,
     showUpdatedAtInMainMenu: false,
-    showPetImageInMainMenu: false
+    showPetImageInMainMenu: false,
+    replySourceMode: "claude"
   };
 }
 
@@ -27,8 +28,17 @@ function normalizeMenuSettings(raw) {
     showWeeklyUsageInMainMenu: raw.showWeeklyUsageInMainMenu === true,
     showQuotaSourceInMainMenu: raw.showQuotaSourceInMainMenu === true,
     showUpdatedAtInMainMenu: raw.showUpdatedAtInMainMenu === true,
-    showPetImageInMainMenu: raw.showPetImageInMainMenu === true
+    showPetImageInMainMenu: raw.showPetImageInMainMenu === true,
+    replySourceMode: normalizeReplySourceMode(raw.replySourceMode)
   };
+}
+
+function normalizeReplySourceMode(value) {
+  if (value === "codex" || value === "both") {
+    return value;
+  }
+
+  return "claude";
 }
 
 function ensureMenuSettings(baseDir) {
@@ -74,5 +84,6 @@ module.exports = {
   createDefaultMenuSettings,
   ensureMenuSettings,
   readMenuSettings,
-  updateMenuSettings
+  updateMenuSettings,
+  normalizeReplySourceMode
 };

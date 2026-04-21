@@ -7,6 +7,7 @@ const {
   updateQuotaCacheFromClaudeStatus
 } = require("./quota-source");
 const { createClaudeTranscriptWatcher } = require("./claude-transcript-watcher");
+const { createCodexTranscriptWatcher } = require("./codex-transcript-watcher");
 const {
   ensureAppearanceStorage,
   readAppearance,
@@ -17,7 +18,8 @@ const {
 const {
   ensureMenuSettings,
   readMenuSettings,
-  updateMenuSettings
+  updateMenuSettings,
+  normalizeReplySourceMode
 } = require("./menu-settings");
 const {
   ensureSoundStorage,
@@ -45,6 +47,7 @@ let tray;
 let currentQuota = readQuota();
 let eventWatcher;
 let claudeTranscriptWatcher;
+let codexTranscriptWatcher;
 let quotaRefreshTimer;
 let isQuotaRefreshing = false;
 let currentAppearance;
@@ -89,6 +92,9 @@ function ensureDataFiles() {
 
 function setMenuSetting(key, value) {
   currentMenuSettings = updateMenuSettings(dataDir, { [key]: value });
+  if (key === "replySourceMode") {
+    restartReplySourceWatchers();
+  }
   refreshTray();
 }
 
@@ -215,6 +221,11 @@ function buildContextMenu() {
     });
   }
 
+  settingsItems.push({
+    label: `Reply Source: ${normalizeReplySourceMode(currentMenuSettings.replySourceMode)}`,
+    enabled: false
+  });
+
   return Menu.buildFromTemplate([
     {
       label: currentQuota.fiveHour.menuTitle || "5小时 limit --",
@@ -271,6 +282,36 @@ function buildContextMenu() {
           click: (item) => {
             setMenuSetting("showPetImageInMainMenu", item.checked);
           }
+        },
+        { type: "separator" },
+        {
+          label: "Reply Source",
+          submenu: [
+            {
+              label: "Claude",
+              type: "radio",
+              checked: normalizeReplySourceMode(currentMenuSettings.replySourceMode) === "claude",
+              click: () => {
+                setMenuSetting("replySourceMode", "claude");
+              }
+            },
+            {
+              label: "Codex",
+              type: "radio",
+              checked: normalizeReplySourceMode(currentMenuSettings.replySourceMode) === "codex",
+              click: () => {
+                setMenuSetting("replySourceMode", "codex");
+              }
+            },
+            {
+              label: "Both",
+              type: "radio",
+              checked: normalizeReplySourceMode(currentMenuSettings.replySourceMode) === "both",
+              click: () => {
+                setMenuSetting("replySourceMode", "both");
+              }
+            }
+          ]
         },
         { type: "separator" },
         {
@@ -457,6 +498,41 @@ function showReplyBubble(text) {
     bubble.webContents.send("reply-bubble:show", pendingReplyBubblePayload);
   }
   scheduleReplyBubbleHide();
+}
+
+function handleReplyFinished(payload) {
+  sendAnimation("reply-finished");
+  showReplyBubble(payload && payload.replyText ? payload.replyText : "");
+}
+
+function stopReplySourceWatchers() {
+  if (claudeTranscriptWatcher) {
+    claudeTranscriptWatcher.close();
+    claudeTranscriptWatcher = undefined;
+  }
+
+  if (codexTranscriptWatcher) {
+    codexTranscriptWatcher.close();
+    codexTranscriptWatcher = undefined;
+  }
+}
+
+function restartReplySourceWatchers() {
+  stopReplySourceWatchers();
+
+  const mode = normalizeReplySourceMode(currentMenuSettings && currentMenuSettings.replySourceMode);
+
+  if (mode === "claude" || mode === "both") {
+    claudeTranscriptWatcher = createClaudeTranscriptWatcher({
+      onReplyFinished: handleReplyFinished
+    });
+  }
+
+  if (mode === "codex" || mode === "both") {
+    codexTranscriptWatcher = createCodexTranscriptWatcher({
+      onReplyFinished: handleReplyFinished
+    });
+  }
 }
 
 async function syncQuotaFromClaudeStatus(options = {}) {
@@ -693,12 +769,7 @@ app.whenReady().then(() => {
   createWindow();
   createTray();
   watchEvents();
-  claudeTranscriptWatcher = createClaudeTranscriptWatcher({
-    onReplyFinished: ({ replyText }) => {
-      sendAnimation("reply-finished");
-      showReplyBubble(replyText);
-    }
-  });
+  restartReplySourceWatchers();
   setTimeout(() => {
     void syncQuotaFromClaudeStatus({ animate: false });
   }, 1500);
@@ -723,9 +794,7 @@ app.on("before-quit", () => {
   if (eventWatcher) {
     eventWatcher.close();
   }
-  if (claudeTranscriptWatcher) {
-    claudeTranscriptWatcher.close();
-  }
+  stopReplySourceWatchers();
   if (quotaRefreshTimer) {
     clearInterval(quotaRefreshTimer);
   }
