@@ -9,11 +9,13 @@ const demoQuota = {
   weekly: {
     display: "16% used",
     usedPercent: 16,
+    resetTimestamp: Date.now() + (6 * 24 * 60 * 60 * 1000),
     resetsAt: "Apr 27 at 2pm (Asia/Shanghai)"
   },
   fiveHour: {
     display: "25% used",
     usedPercent: 25,
+    resetTimestamp: Date.now() + (3 * 60 * 60 * 1000),
     resetsAt: "4pm (Asia/Shanghai)"
   },
   updatedAt: new Date().toISOString()

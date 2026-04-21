@@ -1,215 +1,133 @@
 const fs = require("fs");
 const path = require("path");
-const { spawn } = require("child_process");
-const { isCurrentSessionResetText } = require("./quota-time");
+const {
+  formatFiveHourResetText,
+  formatResetForMenu,
+  formatWeeklyResetText,
+  toDateFromTimestamp
+} = require("./quota-time");
+const { claudeStatuslineQuotaCachePath } = require("./quota-paths");
 
 const dataDir = path.join(__dirname, "..", "data");
 const quotaPath = path.join(dataDir, "quota.json");
-const STATUS_RATE_LIMIT_MESSAGE = "Usage endpoint is rate limited";
-const DEFAULT_STATUS_RETRIES = 5;
-const DEFAULT_STATUS_RETRY_DELAY_MS = 2500;
 
-function hasRateLimitMessage(rawText) {
-  return stripAnsi(rawText)
-    .replace(/\s+/g, " ")
-    .includes(STATUS_RATE_LIMIT_MESSAGE);
+function createEmptyBucket(options) {
+  return {
+    label: options.label,
+    display: "Unavailable",
+    usedPercent: null,
+    resetTimestamp: null,
+    resetsAt: "Unknown",
+    menuTitle: options.emptyTitle,
+    menuSubtitle: options.emptySubtitle
+  };
 }
 
 function createEmptyQuota() {
   return {
     source: "unavailable",
-    weekly: {
+    weekly: createEmptyBucket({
       label: "Current week (all models)",
-      display: "Unavailable",
-      usedPercent: null,
-      resetsAt: "Unknown",
-      menuTitle: "Weekly Limits --",
-      menuSubtitle: "Resets Unknown"
-    },
-    fiveHour: {
+      emptyTitle: "Weekly Limits --",
+      emptySubtitle: "Resets Unknown"
+    }),
+    fiveHour: createEmptyBucket({
       label: "Current session",
-      display: "Unavailable",
-      usedPercent: null,
-      resetsAt: "Unknown",
-      menuTitle: "5小时 limit --",
-      menuSubtitle: "Resets in Unknown"
-    },
+      emptyTitle: "5小时 limit --",
+      emptySubtitle: "Resets in Unknown"
+    }),
     updatedAt: "unknown"
   };
 }
 
-function cloneBucket(bucket, fallbackLabel) {
-  const isCurrentSession = fallbackLabel === "Current session";
-  const defaultMenuTitle = isCurrentSession ? "5小时 limit --" : "Weekly Limits --";
-  const defaultMenuSubtitle = isCurrentSession ? "Resets in Unknown" : "Resets Unknown";
-  const rawLastKnownValidResetsAt = bucket && typeof bucket === "object"
-    ? bucket.lastKnownValidResetsAt
-    : null;
-  const lastKnownValidResetsAt = isCurrentSession && isCurrentSessionResetText(rawLastKnownValidResetsAt)
-    ? rawLastKnownValidResetsAt
-    : null;
-
-  if (!bucket || typeof bucket !== "object") {
-    return {
-      label: fallbackLabel,
-      display: "Unavailable",
-      usedPercent: null,
-      resetsAt: "Unknown",
-      menuTitle: defaultMenuTitle,
-      menuSubtitle: defaultMenuSubtitle,
-      lastKnownValidResetsAt
-    };
+function normalizePercent(value) {
+  if (!Number.isFinite(value)) {
+    return null;
   }
 
-  if (typeof bucket.display === "string") {
-    return {
-      label: typeof bucket.label === "string" ? bucket.label : fallbackLabel,
-      display: bucket.display,
-      usedPercent: Number.isFinite(bucket.usedPercent) ? bucket.usedPercent : null,
-      resetsAt: typeof bucket.resetsAt === "string" ? bucket.resetsAt : "Unknown",
-      menuTitle: typeof bucket.menuTitle === "string" ? bucket.menuTitle : undefined,
-      menuSubtitle: typeof bucket.menuSubtitle === "string" ? bucket.menuSubtitle : undefined,
-      lastKnownValidResetsAt
-    };
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function normalizeTimestamp(value) {
+  if (typeof value === "string" && value.trim()) {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) {
+      return normalizeTimestamp(numeric);
+    }
   }
 
-  if (Number.isFinite(bucket.usedPercent)) {
-    return {
-      label: typeof bucket.label === "string" ? bucket.label : fallbackLabel,
-      display: `${bucket.usedPercent}% used`,
-      usedPercent: bucket.usedPercent,
-      resetsAt: typeof bucket.resetsAt === "string" ? bucket.resetsAt : "Unknown",
-      menuTitle: typeof bucket.menuTitle === "string" ? bucket.menuTitle : undefined,
-      menuSubtitle: typeof bucket.menuSubtitle === "string" ? bucket.menuSubtitle : undefined,
-      lastKnownValidResetsAt
-    };
+  if (!Number.isFinite(value) || value <= 0) {
+    return null;
   }
 
-  if (Number.isFinite(bucket.used) && Number.isFinite(bucket.limit)) {
-    const usedPercent = bucket.limit > 0
-      ? Math.round((bucket.used / bucket.limit) * 100)
-      : null;
+  const normalized = value > 1e12
+    ? Math.round(value)
+    : Math.round(value * 1000);
+  return toDateFromTimestamp(normalized) ? normalized : null;
+}
 
-    return {
-      label: typeof bucket.label === "string" ? bucket.label : fallbackLabel,
-      display: `${bucket.used}/${bucket.limit}`,
-      usedPercent,
-      resetsAt: typeof bucket.resetsAt === "string" ? bucket.resetsAt : "Unknown",
-      menuTitle: typeof bucket.menuTitle === "string" ? bucket.menuTitle : undefined,
-      menuSubtitle: typeof bucket.menuSubtitle === "string" ? bucket.menuSubtitle : undefined,
-      lastKnownValidResetsAt
-    };
+function buildBucketFromRateLimit(options) {
+  const usedPercent = normalizePercent(options.usedPercentage);
+  const resetTimestamp = normalizeTimestamp(options.resetTimestamp);
+  const display = usedPercent == null ? "Unavailable" : `${usedPercent}% used`;
+
+  let resetsAt = "Unknown";
+  let menuSubtitle = options.emptySubtitle;
+
+  if (resetTimestamp) {
+    resetsAt = options.kind === "fiveHour"
+      ? formatFiveHourResetText(resetTimestamp, options.timeZone)
+      : formatWeeklyResetText(resetTimestamp, options.timeZone, options.locale);
+
+    const formattedForMenu = formatResetForMenu(resetTimestamp, options.timeZone, options.locale);
+    menuSubtitle = options.kind === "fiveHour"
+      ? `Resets at ${formattedForMenu}`
+      : `Resets ${formattedForMenu}`;
   }
 
   return {
-    label: fallbackLabel,
-    display: "Unavailable",
-    usedPercent: null,
-    resetsAt: "Unknown",
-    menuTitle: defaultMenuTitle,
-    menuSubtitle: defaultMenuSubtitle,
-    lastKnownValidResetsAt
-  };
-}
-
-function mergeCurrentSessionFallback(bucket, previousBucket) {
-  const nextBucket = bucket;
-  const previous = previousBucket && typeof previousBucket === "object"
-    ? previousBucket
-    : null;
-  const currentValidReset = isCurrentSessionResetText(nextBucket.resetsAt)
-    ? nextBucket.resetsAt
-    : null;
-  const storedValidReset = isCurrentSessionResetText(nextBucket.lastKnownValidResetsAt)
-    ? nextBucket.lastKnownValidResetsAt
-    : null;
-  const previousValidReset = previous && isCurrentSessionResetText(previous.resetsAt)
-    ? previous.resetsAt
-    : null;
-  const previousStoredValidReset = previous && isCurrentSessionResetText(previous.lastKnownValidResetsAt)
-    ? previous.lastKnownValidResetsAt
-    : null;
-
-  if (currentValidReset) {
-    return {
-      ...nextBucket,
-      lastKnownValidResetsAt: currentValidReset
-    };
-  }
-
-  const fallbackReset = storedValidReset || previousValidReset || previousStoredValidReset;
-
-  if (fallbackReset) {
-    return {
-      ...nextBucket,
-      resetsAt: fallbackReset,
-      menuSubtitle: previous && typeof previous.menuSubtitle === "string" && previous.menuSubtitle
-        ? previous.menuSubtitle
-        : `Resets at ${formatResetForMenu(fallbackReset)}`,
-      lastKnownValidResetsAt: fallbackReset
-    };
-  }
-
-  return {
-    ...nextBucket,
-    resetsAt: "Unknown",
-    menuSubtitle: "Resets in Unknown",
-    lastKnownValidResetsAt: null
-  };
-}
-
-function normalizeBucket(bucket, fallbackLabel, previousBucket) {
-  const isCurrentSession = fallbackLabel === "Current session";
-  const normalizedBucket = cloneBucket(bucket, fallbackLabel);
-  if (!isCurrentSession) {
-    return normalizedBucket;
-  }
-
-  return mergeCurrentSessionFallback(
-    normalizedBucket,
-    cloneBucket(previousBucket, fallbackLabel)
-  );
-}
-
-function formatUsageDisplay(bucket, fallbackLabel) {
-  const defaultMenuTitle = fallbackLabel === "Current session"
-    ? "5小时 limit --"
-    : "Weekly Limits --";
-  const defaultMenuSubtitle = fallbackLabel === "Current session"
-    ? "Resets in Unknown"
-    : "Resets Unknown";
-
-  if (!bucket || typeof bucket !== "object") {
-    return {
-      label: fallbackLabel,
-      display: "Unavailable",
-      usedPercent: null,
-      resetsAt: "Unknown",
-      menuTitle: defaultMenuTitle,
-      menuSubtitle: defaultMenuSubtitle
-    };
-  }
-
-  const label = typeof bucket.label === "string" ? bucket.label : fallbackLabel;
-  const display = typeof bucket.display === "string" ? bucket.display : "Unavailable";
-  const resetsAt = typeof bucket.resetsAt === "string" ? bucket.resetsAt : "Unknown";
-  const menuTitle = typeof bucket.menuTitle === "string" && bucket.menuTitle
-    ? bucket.menuTitle
-    : defaultMenuTitle;
-  const menuSubtitle = typeof bucket.menuSubtitle === "string" && bucket.menuSubtitle
-    ? bucket.menuSubtitle
-    : defaultMenuSubtitle;
-
-  return {
-    label,
+    label: options.label,
     display,
-    usedPercent: Number.isFinite(bucket.usedPercent) ? bucket.usedPercent : null,
+    usedPercent,
+    resetTimestamp,
+    resetsAt,
+    menuTitle: usedPercent == null
+      ? options.emptyTitle
+      : `${options.titlePrefix} ${usedPercent}%`,
+    menuSubtitle
+  };
+}
+
+function normalizeBucket(bucket, options) {
+  if (!bucket || typeof bucket !== "object") {
+    return createEmptyBucket(options);
+  }
+
+  const usedPercent = normalizePercent(bucket.usedPercent);
+  const resetTimestamp = normalizeTimestamp(bucket.resetTimestamp);
+  const display = typeof bucket.display === "string" && bucket.display.trim()
+    ? bucket.display
+    : (usedPercent == null ? "Unavailable" : `${usedPercent}% used`);
+  const resetsAt = typeof bucket.resetsAt === "string" && bucket.resetsAt.trim()
+    ? bucket.resetsAt
+    : "Unknown";
+  const menuTitle = typeof bucket.menuTitle === "string" && bucket.menuTitle.trim()
+    ? bucket.menuTitle
+    : (usedPercent == null ? options.emptyTitle : `${options.titlePrefix} ${usedPercent}%`);
+  const menuSubtitle = typeof bucket.menuSubtitle === "string" && bucket.menuSubtitle.trim()
+    ? bucket.menuSubtitle
+    : options.emptySubtitle;
+
+  return {
+    label: typeof bucket.label === "string" && bucket.label.trim()
+      ? bucket.label
+      : options.label,
+    display,
+    usedPercent,
+    resetTimestamp,
     resetsAt,
     menuTitle,
-    menuSubtitle,
-    lastKnownValidResetsAt: typeof bucket.lastKnownValidResetsAt === "string"
-      ? bucket.lastKnownValidResetsAt
-      : undefined
+    menuSubtitle
   };
 }
 
@@ -220,26 +138,28 @@ function normalizeQuota(raw) {
     return empty;
   }
 
-  const previousQuota = (() => {
-    if (!raw.previousQuota || typeof raw.previousQuota !== "object") {
-      return empty;
-    }
-
-    return raw.previousQuota;
-  })();
-
   return {
-    source: typeof raw.source === "string" ? raw.source : empty.source,
-    weekly: formatUsageDisplay(
-      normalizeBucket(raw.weekly, empty.weekly.label, previousQuota.weekly),
-      empty.weekly.label
-    ),
-    fiveHour: formatUsageDisplay(
-      normalizeBucket(raw.fiveHour, empty.fiveHour.label, previousQuota.fiveHour),
-      empty.fiveHour.label
-    ),
-    updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : empty.updatedAt,
-    error: typeof raw.error === "string" ? raw.error : undefined
+    source: typeof raw.source === "string" && raw.source.trim()
+      ? raw.source
+      : empty.source,
+    weekly: normalizeBucket(raw.weekly, {
+      label: empty.weekly.label,
+      titlePrefix: "Weekly Limits",
+      emptyTitle: empty.weekly.menuTitle,
+      emptySubtitle: empty.weekly.menuSubtitle
+    }),
+    fiveHour: normalizeBucket(raw.fiveHour, {
+      label: empty.fiveHour.label,
+      titlePrefix: "5小时 limit",
+      emptyTitle: empty.fiveHour.menuTitle,
+      emptySubtitle: empty.fiveHour.menuSubtitle
+    }),
+    updatedAt: typeof raw.updatedAt === "string" && raw.updatedAt.trim()
+      ? raw.updatedAt
+      : empty.updatedAt,
+    error: typeof raw.error === "string" && raw.error.trim()
+      ? raw.error
+      : undefined
   };
 }
 
@@ -256,478 +176,94 @@ function writeQuota(quota) {
   fs.writeFileSync(quotaPath, JSON.stringify(normalizeQuota(quota), null, 2));
 }
 
-function stripAnsi(text) {
-  return text
-    .replace(/\u001b\][^\u0007]*(?:\u0007|\u001b\\)/g, "")
-    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
-    .replace(/\u001b[@-_]/g, "")
-    .replace(/[\u0000-\u0008\u000b-\u001a\u001c-\u001f\u007f]/g, "")
-    .replace(/\r/g, "\n");
-}
-
-function toNormalizedLines(text) {
-  return stripAnsi(text)
-    .split("\n")
-    .map((line) => line.replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim())
-    .filter(Boolean);
-}
-
-function humanizeResetText(text) {
-  return text
-    .replace(/^reset(?:s)?(?:\s+in)?\s+/i, "")
-    .replace(/([A-Za-z])(\d)/g, "$1 $2")
-    .replace(/(\d)([A-Za-oq-zA-Z])/g, "$1 $2")
-    .replace(/\b(\d)\s+(am|pm)\b/gi, "$1$2")
-    .replace(/\(\s*/g, "(")
-    .replace(/([a-z])\(/g, "$1 (")
-    .replace(/\s*\)/g, ")")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function buildBucket(label, usedPercent, resetsAt) {
-  const menuResetsAt = formatResetForMenu(resetsAt);
-  const titlePercent = `${usedPercent}%`;
-  const menuTitle = label === "Current session"
-    ? `5小时 limit ${titlePercent}`
-    : `Weekly Limits ${titlePercent}`;
-  const menuSubtitle = label === "Current session"
-    ? `Resets at ${menuResetsAt}`
-    : `Resets ${menuResetsAt}`;
-
-  return {
-    label,
-    display: `${usedPercent}% used`,
-    usedPercent,
-    resetsAt,
-    menuTitle,
-    menuSubtitle
-  };
-}
-
-function formatResetForMenu(resetsAt) {
-  const normalized = String(resetsAt || "Unknown")
-    .replace(/^reset(?:s)?(?:\s+in)?\s+/i, "")
-    .replace(/\(Asia\/Shanghai\)/gi, "")
-    .replace(/\bat\b/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  const timeMatch = normalized.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i);
-  if (!timeMatch) {
-    return normalized || "Unknown";
+function readStatuslineQuotaCache(cachePath = claudeStatuslineQuotaCachePath) {
+  try {
+    return JSON.parse(fs.readFileSync(cachePath, "utf8"));
+  } catch {
+    return null;
   }
-
-  const hour = timeMatch[1];
-  const minute = timeMatch[2] || "00";
-  const period = timeMatch[3].toUpperCase();
-  const formattedTime = `${hour}:${minute} ${period}`;
-
-  const prefix = normalized.slice(0, timeMatch.index).trim();
-  return prefix ? `${prefix} ${formattedTime}` : formattedTime;
 }
 
-function extractBucketFromCompactText(compactText, pattern, label) {
-  const match = compactText.match(pattern);
-  if (!match) {
+function extractRateLimitBucket(rateLimits, key) {
+  if (!rateLimits || typeof rateLimits !== "object") {
     return null;
   }
 
-  const usedPercent = Number(match[1]);
-  const resetsAt = humanizeResetText(match[2]);
-
-  return buildBucket(label, usedPercent, resetsAt);
+  const bucket = rateLimits[key];
+  return bucket && typeof bucket === "object" ? bucket : null;
 }
 
-function extractBucketFromCompactBlock(compactText, options) {
-  const startMatch = compactText.match(options.startPattern);
-  if (!startMatch || typeof startMatch.index !== "number") {
+function parseStatuslineQuotaCache(raw, options = {}) {
+  if (!raw || typeof raw !== "object") {
     return null;
   }
 
-  const startIndex = startMatch.index + startMatch[0].length;
-  const remainder = compactText.slice(startIndex);
-  const endMatch = remainder.match(options.endPattern);
-  const block = endMatch
-    ? remainder.slice(0, endMatch.index)
-    : remainder;
+  const timeZone = options.timeZone || raw.timeZone || "UTC";
+  const locale = options.locale || raw.locale || "en-US";
+  const rateLimits = raw.rate_limits && typeof raw.rate_limits === "object"
+    ? raw.rate_limits
+    : raw.rateLimits;
 
-  const percentMatch = block.match(/(\d{1,3})\s*%\s*used/i);
-  const resetMatch = block.match(options.resetPattern);
+  const fiveHourRateLimit = extractRateLimitBucket(rateLimits, "five_hour");
+  const weeklyRateLimit = extractRateLimitBucket(rateLimits, "seven_day");
 
-  if (!percentMatch || !resetMatch) {
-    return null;
-  }
-
-  return buildBucket(
-    options.label,
-    Number(percentMatch[1]),
-    humanizeResetText(resetMatch[1])
-  );
-}
-
-function extractBucketFromTextLines(lines, options) {
-  const headerLine = lines.find((line) => options.headerPattern.test(line));
-  if (!headerLine) {
-    return null;
-  }
-
-  const headerIndex = lines.indexOf(headerLine);
-  const searchWindow = lines.slice(headerIndex, headerIndex + 6).join(" ");
-  const compactWindow = searchWindow.replace(/\s+/g, " ");
-
-  const percentMatch = compactWindow.match(/(\d{1,3})%\s*used/i);
-  const resetsMatch = compactWindow.match(options.resetPattern);
-
-  if (!percentMatch || !resetsMatch) {
-    return null;
-  }
-
-  return buildBucket(
-    options.label,
-    Number(percentMatch[1]),
-    humanizeResetText(resetsMatch[1])
-  );
-}
-
-function parseClaudeStatusUsage(rawText) {
-  const normalizedLines = toNormalizedLines(rawText);
-  const compactText = normalizedLines
-    .join(" ")
-    .replace(/[█▌▐▛▜▘▝]+/g, " ")
-    .replace(/\s+/g, " ");
-
-  let fiveHour = extractBucketFromCompactBlock(compactText, {
-    startPattern: /Cur\w*session/i,
-    endPattern: /Current\s*week|What's\s*contributing|Per-model|Extra\s*usage/i,
-    resetPattern: /Res(?:ets?|es)?\s*([0-9: ]*(?:am|pm)\s*\(Asia\/Shanghai\))/i,
-    label: "Current session"
-  });
-
-  if (!fiveHour) {
-    fiveHour = extractBucketFromCompactText(
-    compactText,
-    /Cur\w*session\s*(\d{1,3})%\s*used\s*Res(?:ets?|es)\s*([0-9: ]*(?:am|pm)\s*\(Asia\/Shanghai\))/i,
-    "Current session"
-    );
-  }
-
-  let weekly = extractBucketFromCompactBlock(compactText, {
-    startPattern: /Current\s*week\s*\(all\s*models\)/i,
-    endPattern: /What's\s*contributing|Per-model|Extra\s*usage/i,
-    resetPattern: /Res(?:ets?)?\s*([A-Za-z0-9: ]+\(Asia\/Shanghai\))/i,
-    label: "Current week (all models)"
-  });
-
-  if (!weekly) {
-    weekly = extractBucketFromCompactText(
-    compactText,
-    /Current\s*week\s*\(all\s*models\).*?(\d{1,3})%\s*used.*?Resets?\s*([A-Za-z0-9: ]+\(Asia\/Shanghai\))/i,
-    "Current week (all models)"
-    );
-  }
-
-  if (!fiveHour) {
-    fiveHour = extractBucketFromTextLines(normalizedLines, {
-      headerPattern: /Current\s*session|5-hour/i,
-      resetPattern: /(reset(?:s)?(?:\s+in)?\s+[A-Za-z0-9: ]+(?:am|pm)?(?:\s*\(Asia\/Shanghai\))?)/i,
-      label: "Current session"
-    });
-  }
-
-  if (!weekly) {
-    weekly = extractBucketFromTextLines(normalizedLines, {
-      headerPattern: /Current\s*week|Weekly\s*Limits/i,
-      resetPattern: /(reset(?:s)?\s+[A-Za-z0-9: ]+(?:am|pm)?(?:\s*\(Asia\/Shanghai\))?)/i,
-      label: "Current week (all models)"
-    });
-  }
-
-  if (!fiveHour || !weekly) {
-    return null;
-  }
-
-  if (!isCurrentSessionResetText(fiveHour.resetsAt)) {
+  if (!fiveHourRateLimit && !weeklyRateLimit) {
     return null;
   }
 
   return normalizeQuota({
-    source: "claude-status",
-    fiveHour,
-    weekly,
-    updatedAt: new Date().toISOString()
+    source: "claude-debug-cache",
+    fiveHour: buildBucketFromRateLimit({
+      kind: "fiveHour",
+      label: "Current session",
+      titlePrefix: "5小时 limit",
+      emptyTitle: "5小时 limit --",
+      emptySubtitle: "Resets in Unknown",
+      usedPercentage: fiveHourRateLimit && fiveHourRateLimit.used_percentage,
+      resetTimestamp: fiveHourRateLimit && fiveHourRateLimit.resets_at,
+      timeZone,
+      locale
+    }),
+    weekly: buildBucketFromRateLimit({
+      kind: "weekly",
+      label: "Current week (all models)",
+      titlePrefix: "Weekly Limits",
+      emptyTitle: "Weekly Limits --",
+      emptySubtitle: "Resets Unknown",
+      usedPercentage: weeklyRateLimit && weeklyRateLimit.used_percentage,
+      resetTimestamp: weeklyRateLimit && weeklyRateLimit.resets_at,
+      timeZone,
+      locale
+    }),
+    updatedAt: typeof raw.updatedAt === "string" && raw.updatedAt.trim()
+      ? raw.updatedAt
+      : new Date().toISOString()
   });
-}
-
-function resolveClaudeBinary() {
-  if (process.env.CLAUDE_BIN) {
-    return process.env.CLAUDE_BIN;
-  }
-
-  const homeClaude = path.join(process.env.HOME || "", ".local", "bin", "claude");
-  if (homeClaude && fs.existsSync(homeClaude)) {
-    return homeClaude;
-  }
-
-  return "claude";
-}
-
-function fetchQuotaFromClaudeStatus(options = {}) {
-  const cwd = options.cwd || process.cwd();
-  const claudeBinary = resolveClaudeBinary();
-  const debugPath = options.debugPath;
-  const usageRetryCount = Number.isInteger(options.usageRetryCount) ? options.usageRetryCount : 5;
-
-  return new Promise((resolve, reject) => {
-    const expectScript = `
-set timeout 30
-log_user 1
-set usage_retry_count ${usageRetryCount}
-spawn ${tclQuote(claudeBinary)}
-expect {
-  "Quick safety check:" {
-    send "\\r"
-    exp_continue
-  }
-  "❯" {
-    send "/status\\r"
-  }
-}
-expect {
-  "Session ID:" {}
-  "Status" {}
-}
-send "\\033\\[C"
-expect {
-  "Search settings" {}
-  "Auto-compact" {}
-  timeout {}
-}
-send "\\033\\[C"
-expect {
-  "Current session" {
-    after 1500
-  }
-  "Loading usage data" {
-    exp_continue
-  }
-  "Usage endpoint is rate limited" {
-    if {$usage_retry_count > 0} {
-      incr usage_retry_count -1
-      after 1200
-      send "r"
-      exp_continue
-    }
-  }
-  timeout {}
-}
-send "\\033"
-expect {
-  "Status dialog dismissed" {}
-  "❯" {}
-  timeout {}
-}
-send "/exit\\r"
-expect eof
-`;
-
-    const child = spawn("expect", ["-c", expectScript], {
-      cwd,
-      env: process.env,
-      stdio: ["ignore", "pipe", "pipe"],
-      detached: true
-    });
-
-    let settled = false;
-    let rawText = "";
-    let timeoutId;
-
-    const cleanup = () => {
-      clearTimeout(timeoutId);
-
-      try {
-        process.kill(-child.pid, "SIGTERM");
-      } catch {
-        // Ignore if the process group is already gone.
-      }
-    };
-
-    const tryResolveFromRawText = () => {
-      if (hasRateLimitMessage(rawText)) {
-        return false;
-      }
-
-      const quota = parseClaudeStatusUsage(rawText);
-      if (!quota) {
-        return false;
-      }
-
-      settled = true;
-
-      if (debugPath) {
-        fs.writeFileSync(debugPath, rawText);
-      }
-
-      cleanup();
-      resolve(quota);
-      return true;
-    };
-
-    const rejectIfRateLimited = () => {
-      if (!hasRateLimitMessage(rawText) || settled) {
-        return false;
-      }
-
-      settled = true;
-
-      if (debugPath) {
-        fs.writeFileSync(debugPath, rawText);
-      }
-
-      cleanup();
-      reject(new Error("Claude Code usage endpoint is rate limited"));
-      return true;
-    };
-
-    const onData = (chunk) => {
-      if (settled) {
-        return;
-      }
-
-      rawText += chunk.toString("utf8");
-
-      if (rejectIfRateLimited()) {
-        return;
-      }
-
-      tryResolveFromRawText();
-    };
-
-    child.stdout.on("data", onData);
-    child.stderr.on("data", onData);
-
-    child.on("error", (error) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      cleanup();
-      reject(error);
-    });
-
-    child.on("close", () => {
-      if (settled) {
-        return;
-      }
-
-      if (debugPath) {
-        fs.writeFileSync(debugPath, rawText);
-      }
-
-      if (rejectIfRateLimited()) {
-        return;
-      }
-
-      const quota = parseClaudeStatusUsage(rawText);
-      if (quota) {
-        settled = true;
-        cleanup();
-        resolve(quota);
-        return;
-      }
-
-      if (hasRateLimitMessage(rawText)) {
-        settled = true;
-        cleanup();
-        reject(new Error("Claude Code usage endpoint is rate limited"));
-        return;
-      }
-
-      settled = true;
-      cleanup();
-      reject(new Error("Unable to parse Claude Code /status usage output"));
-    });
-
-    timeoutId = setTimeout(() => {
-      if (settled) {
-        return;
-      }
-
-      if (!tryResolveFromRawText()) {
-        if (rejectIfRateLimited()) {
-          return;
-        }
-
-        settled = true;
-
-        if (debugPath) {
-          fs.writeFileSync(debugPath, rawText);
-        }
-
-        cleanup();
-        reject(new Error("Timed out while reading Claude Code /status"));
-      }
-    }, 20000);
-  });
-}
-
-function tclQuote(value) {
-  return `"${String(value).replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}"`;
-}
-
-async function sleep(ms) {
-  await new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-
-async function fetchQuotaFromClaudeStatusWithRetry(options = {}) {
-  const retries = Number.isInteger(options.retries) ? options.retries : DEFAULT_STATUS_RETRIES;
-  const retryDelayMs = Number.isFinite(options.retryDelayMs)
-    ? options.retryDelayMs
-    : DEFAULT_STATUS_RETRY_DELAY_MS;
-
-  let lastError;
-
-  for (let attempt = 0; attempt <= retries; attempt += 1) {
-    try {
-      return await fetchQuotaFromClaudeStatus(options);
-    } catch (error) {
-      lastError = error;
-
-      const message = String(error && error.message ? error.message : error);
-      const isRetriable = message.includes("rate limited")
-        || message.includes("Timed out while reading Claude Code /status");
-
-      if (!isRetriable || attempt === retries) {
-        break;
-      }
-
-      await sleep(retryDelayMs * (attempt + 1));
-    }
-  }
-
-  throw lastError;
 }
 
 async function updateQuotaCacheFromClaudeStatus(options = {}) {
-  const previousQuota = readQuota();
-  const quota = await fetchQuotaFromClaudeStatusWithRetry(options);
-  const normalizedQuota = normalizeQuota({
-    ...quota,
-    previousQuota
+  const rawCache = readStatuslineQuotaCache(options.cachePath);
+  const parsedQuota = parseStatuslineQuotaCache(rawCache, {
+    timeZone: options.timeZone,
+    locale: options.locale
   });
-  writeQuota(normalizedQuota);
-  return normalizedQuota;
+
+  if (!parsedQuota) {
+    throw new Error("Claude rate limit debug cache is unavailable");
+  }
+
+  writeQuota(parsedQuota);
+  return parsedQuota;
 }
 
 module.exports = {
-  quotaPath,
+  claudeStatuslineQuotaCachePath,
+  createEmptyQuota,
   normalizeQuota,
+  parseStatuslineQuotaCache,
+  quotaPath,
   readQuota,
-  writeQuota,
-  parseClaudeStatusUsage,
-  fetchQuotaFromClaudeStatus,
-  fetchQuotaFromClaudeStatusWithRetry,
-  updateQuotaCacheFromClaudeStatus
+  readStatuslineQuotaCache,
+  updateQuotaCacheFromClaudeStatus,
+  writeQuota
 };

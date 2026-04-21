@@ -7,7 +7,8 @@ const {
   updateQuotaCacheFromClaudeStatus
 } = require("./quota-source");
 const {
-  formatFiveHourResetCountdown
+  formatFiveHourResetCountdown,
+  formatResetForMenu
 } = require("./quota-time");
 const { createClaudeTranscriptWatcher } = require("./claude-transcript-watcher");
 const { createCodexTranscriptWatcher } = require("./codex-transcript-watcher");
@@ -130,11 +131,13 @@ function ensureDataFiles() {
           weekly: {
             display: "16% used",
             usedPercent: 16,
+            resetTimestamp: Date.now() + (6 * 24 * 60 * 60 * 1000),
             resetsAt: "Apr 27 at 2pm (Asia/Shanghai)"
           },
           fiveHour: {
             display: "25% used",
             usedPercent: 25,
+            resetTimestamp: Date.now() + (3 * 60 * 60 * 1000),
             resetsAt: "4pm (Asia/Shanghai)"
           },
           updatedAt: new Date().toISOString()
@@ -186,7 +189,7 @@ function getUiStrings() {
       weeklyFallbackTitle: "每周限额 --",
       weeklySubtitleUnknown: "重置时间未知",
       weeklySubtitle: (text) => `将于 ${text} 重置`,
-      sourceClaude: "Claude /status",
+      sourceClaude: "Claude Debug Cache",
       sourceCache: "缓存回退",
       quotaSyncLoading: "额度同步中...",
       quotaSyncReady: "额度缓存就绪",
@@ -238,7 +241,7 @@ function getUiStrings() {
         drag: "默认拖拽音效",
         idle: "默认待机音效"
       },
-      syncClaudeStatus: "同步 Claude 状态",
+      syncClaudeStatus: "同步 Claude 额度缓存",
       triggerReplyFinished: "触发回复完成",
       quit: "退出",
       fiveHourUsageSummary: (value) => `5 小时用量：${value}`,
@@ -259,7 +262,7 @@ function getUiStrings() {
     weeklyFallbackTitle: "Weekly Limits --",
     weeklySubtitleUnknown: "Resets Unknown",
     weeklySubtitle: (text) => `Resets ${text}`,
-    sourceClaude: "Claude /status",
+    sourceClaude: "Claude Debug Cache",
     sourceCache: "Cached fallback",
     quotaSyncLoading: "Quota Sync: Loading...",
     quotaSyncReady: "Quota Sync: Ready",
@@ -311,7 +314,7 @@ function getUiStrings() {
       drag: "Default Drag",
       idle: "Default Idle"
     },
-    syncClaudeStatus: "Sync Claude Status",
+    syncClaudeStatus: "Sync Claude Debug Cache",
     triggerReplyFinished: "Trigger Reply Finished",
     quit: "Quit",
     fiveHourUsageSummary: (value) => `5h Usage: ${value}`,
@@ -455,9 +458,9 @@ function buildSoundMenu() {
   ];
 }
 
-function formatFiveHourResetSubtitle(resetsAt) {
+function formatFiveHourResetSubtitle(resetTimestamp) {
   const strings = getUiStrings();
-  const countdown = formatFiveHourResetCountdown(resetsAt, getConfiguredTimeZone(), new Date());
+  const countdown = formatFiveHourResetCountdown(resetTimestamp, new Date());
   if (!countdown) {
     return strings.fiveHourSubtitleUnknown;
   }
@@ -467,20 +470,15 @@ function formatFiveHourResetSubtitle(resetsAt) {
   return strings.fiveHourSubtitle(countdown.hours, countdown.minutes);
 }
 
-function formatWeeklyResetSubtitle(menuSubtitle, resetsAt) {
+function formatWeeklyResetSubtitle(resetTimestamp) {
   const strings = getUiStrings();
-  if (typeof menuSubtitle === "string" && menuSubtitle.trim() && !isChineseUiEnabled()) {
-    return menuSubtitle;
+  if (!Number.isFinite(resetTimestamp)) {
+    return strings.weeklySubtitleUnknown;
   }
 
-  const normalized = String(resetsAt || "Unknown")
-    .replace(/^reset(?:s)?\s+/i, "")
-    .replace(/\(Asia\/Shanghai\)/gi, "")
-    .replace(/\bat\b/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  return normalized ? strings.weeklySubtitle(normalized) : strings.weeklySubtitleUnknown;
+  const locale = isChineseUiEnabled() ? "zh-CN" : "en-US";
+  const text = formatResetForMenu(resetTimestamp, getConfiguredTimeZone(), locale);
+  return text ? strings.weeklySubtitle(text) : strings.weeklySubtitleUnknown;
 }
 
 function buildContextMenu() {
@@ -492,12 +490,9 @@ function buildContextMenu() {
   const appearanceRenderer = toRendererAppearance(dataDir, currentAppearance);
   const weekly = currentQuota.weekly.display;
   const fiveHour = currentQuota.fiveHour.display;
-  const fiveHourSubtitle = formatFiveHourResetSubtitle(currentQuota.fiveHour.resetsAt);
-  const weeklySubtitle = formatWeeklyResetSubtitle(
-    currentQuota.weekly.menuSubtitle,
-    currentQuota.weekly.resetsAt
-  );
-  const source = currentQuota.source === "claude-status"
+  const fiveHourSubtitle = formatFiveHourResetSubtitle(currentQuota.fiveHour.resetTimestamp);
+  const weeklySubtitle = formatWeeklyResetSubtitle(currentQuota.weekly.resetTimestamp);
+  const source = currentQuota.source === "claude-debug-cache"
     ? strings.sourceClaude
     : strings.sourceCache;
   const loadingLabel = isQuotaRefreshing
@@ -1008,7 +1003,9 @@ async function syncQuotaFromClaudeStatus(options = {}) {
 
   try {
     currentQuota = await updateQuotaCacheFromClaudeStatus({
-      cwd: path.join(__dirname, "..")
+      cwd: path.join(__dirname, ".."),
+      timeZone: getConfiguredTimeZone(),
+      locale: isChineseUiEnabled() ? "zh-CN" : "en-US"
     });
   } catch (error) {
     currentQuota = {

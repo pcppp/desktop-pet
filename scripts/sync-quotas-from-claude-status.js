@@ -4,8 +4,12 @@ const {
 } = require("../src/quota-source");
 
 async function main() {
+  const locale = Intl.DateTimeFormat().resolvedOptions().locale || "en-US";
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
   const quota = await updateQuotaCacheFromClaudeStatus({
-    cwd: path.join(__dirname, "..")
+    cwd: path.join(__dirname, ".."),
+    locale,
+    timeZone
   });
 
   console.log(JSON.stringify(quota, null, 2));
