@@ -139,6 +139,7 @@ export default function App() {
   const [appearanceError, setAppearanceError] = useState("");
   const latestAppearanceJobRef = useRef(0);
   const lastAppearanceKeyRef = useRef("");
+  const spriteRef = useRef(null);
 
   const showState = useEffectEvent((nextState, text, duration = 2200) => {
     setState(nextState);
@@ -274,9 +275,9 @@ export default function App() {
 
   const handleContextMenu = (event) => {
     event.preventDefault();
-    const rect = event.currentTarget.getBoundingClientRect();
+    const rect = (spriteRef.current || event.currentTarget).getBoundingClientRect();
     window.petBridge.openContextMenu({
-      x: rect.right - 4,
+      x: rect.right + 2,
       y: rect.top + (rect.height / 2)
     });
     scheduleIdle();
@@ -296,7 +297,7 @@ export default function App() {
       >
         <div className="pet-shadow"></div>
         {appearance.mode === "custom" && customSpriteUrl ? (
-          <div className="custom-pet-shell">
+          <div ref={spriteRef} className="custom-pet-shell">
             <img
               className="custom-pet-image"
               src={customSpriteUrl}
@@ -306,7 +307,9 @@ export default function App() {
             <div className="custom-pet-frame"></div>
           </div>
         ) : (
-          <DefaultPixelPet />
+          <div ref={spriteRef}>
+            <DefaultPixelPet />
+          </div>
         )}
       </div>
       <div id="bubble" className={bubble ? "visible" : ""}>
