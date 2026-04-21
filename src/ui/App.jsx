@@ -1,4 +1,5 @@
 import { useEffect, useEffectEvent, useRef, useState } from "react";
+import replyFinishedDefaultUrl from "../assets/reply-finished-default.mp3";
 
 const IDLE_TIMEOUT_MS = 15000;
 const DRAG_SOUND_THROTTLE_MS = 180;
@@ -30,6 +31,9 @@ const DEFAULT_SOUND_PATTERNS = {
     { frequency: 660, duration: 0.07, volume: 0.08, type: "sine" },
     { frequency: 550, duration: 0.09, volume: 0.065, type: "sine", delay: 0.075 }
   ]
+};
+const DEFAULT_SOUND_ASSETS = {
+  replyFinished: replyFinishedDefaultUrl
 };
 
 function clamp(value, min, max) {
@@ -263,6 +267,11 @@ export default function App() {
 
     if (soundEntry.mode === "custom" && soundEntry.sourceDataUrl) {
       await playCustomSound(soundEntry.sourceDataUrl);
+      return;
+    }
+
+    if (DEFAULT_SOUND_ASSETS[soundKey]) {
+      await playCustomSound(DEFAULT_SOUND_ASSETS[soundKey]);
       return;
     }
 
