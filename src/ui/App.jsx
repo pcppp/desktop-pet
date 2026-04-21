@@ -3,10 +3,10 @@ import replyFinishedDefaultUrl from "../assets/reply-finished-default.mp3";
 
 const IDLE_TIMEOUT_MS = 15000;
 const DRAG_SOUND_THROTTLE_MS = 180;
-const PIXEL_WIDTH = 56;
-const PIXEL_HEIGHT = 56;
-const CUSTOM_PIXEL_SCALE = 2.1;
-const CUSTOM_PIXEL_COLOR_LEVELS = 10;
+const PIXEL_WIDTH = 112;
+const PIXEL_HEIGHT = 112;
+const CUSTOM_PIXEL_SCALE = 1.1;
+const CUSTOM_PIXEL_COLOR_LEVELS = 18;
 const DEFAULT_SOUND_SETTINGS = {
   masterMuted: false,
   masterVolume: 75,
@@ -129,10 +129,9 @@ function createPixelArtDataUrl(imageSource, size = { width: PIXEL_WIDTH, height:
           continue;
         }
 
-        data[index] = quantizeChannel(data[index], 6);
-        data[index + 1] = quantizeChannel(data[index + 1], 6);
-        data[index + 2] = quantizeChannel(data[index + 2], 6);
-        data[index + 3] = 255;
+        data[index] = quantizeChannel(data[index], CUSTOM_PIXEL_COLOR_LEVELS);
+        data[index + 1] = quantizeChannel(data[index + 1], CUSTOM_PIXEL_COLOR_LEVELS);
+        data[index + 2] = quantizeChannel(data[index + 2], CUSTOM_PIXEL_COLOR_LEVELS);
       }
 
       sampleContext.putImageData(imageData, 0, 0);
