@@ -6,6 +6,9 @@ const {
   readQuota,
   updateQuotaCacheFromClaudeStatus
 } = require("./quota-source");
+const {
+  formatFiveHourResetCountdown
+} = require("./quota-time");
 const { createClaudeTranscriptWatcher } = require("./claude-transcript-watcher");
 const { createCodexTranscriptWatcher } = require("./codex-transcript-watcher");
 const {
@@ -347,75 +350,6 @@ function getMotionModuleLabel(motionModule) {
   return isChineseUiEnabled() ? moduleInfo.labelZh : moduleInfo.label;
 }
 
-function detectResetTimeZone(resetsAt) {
-  const match = String(resetsAt || "").match(/\(([A-Za-z_]+(?:\/[A-Za-z_]+)?)\)/);
-  if (!match) {
-    return null;
-  }
-
-  const zone = match[1];
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: zone }).format(new Date());
-    return zone;
-  } catch {
-    return null;
-  }
-}
-
-function getTimeZoneDateParts(date, timeZone) {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false
-  }).formatToParts(date).reduce((accumulator, part) => {
-    if (part.type !== "literal") {
-      accumulator[part.type] = Number(part.value);
-    }
-    return accumulator;
-  }, {});
-}
-
-function getNextCalendarDayParts(year, month, day) {
-  const nextDate = new Date(Date.UTC(year, month - 1, day + 1, 12, 0, 0));
-  return {
-    year: nextDate.getUTCFullYear(),
-    month: nextDate.getUTCMonth() + 1,
-    day: nextDate.getUTCDate()
-  };
-}
-
-function zonedDateTimeToUtcDate(timeZone, year, month, day, hour, minute) {
-  let utcMs = Date.UTC(year, month - 1, day, hour, minute, 0, 0);
-
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    const actualParts = getTimeZoneDateParts(new Date(utcMs), timeZone);
-    const desiredUtcComparable = Date.UTC(year, month - 1, day, hour, minute, 0, 0);
-    const actualUtcComparable = Date.UTC(
-      actualParts.year,
-      actualParts.month - 1,
-      actualParts.day,
-      actualParts.hour,
-      actualParts.minute,
-      0,
-      0
-    );
-    const diffMs = desiredUtcComparable - actualUtcComparable;
-
-    if (diffMs === 0) {
-      break;
-    }
-
-    utcMs += diffMs;
-  }
-
-  return new Date(utcMs);
-}
-
 function describeSoundEntryLocalized(entry, fallbackDefaultLabel) {
   if (!isChineseUiEnabled()) {
     return describeSoundEntry(entry, fallbackDefaultLabel);
@@ -521,66 +455,16 @@ function buildSoundMenu() {
   ];
 }
 
-function parseFiveHourResetTime(resetsAt) {
-  const normalized = String(resetsAt || "")
-    .replace(/^reset(?:s)?(?:\s+in)?\s+/i, "")
-    .trim();
-
-  const timeMatch = normalized.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i);
-  if (!timeMatch) {
-    return null;
-  }
-
-  const now = new Date();
-  let hour = Number(timeMatch[1]);
-  const minute = Number(timeMatch[2] || "0");
-  const period = timeMatch[3].toLowerCase();
-
-  if (period === "pm" && hour !== 12) {
-    hour += 12;
-  } else if (period === "am" && hour === 12) {
-    hour = 0;
-  }
-
-  const effectiveTimeZone = detectResetTimeZone(resetsAt) || getConfiguredTimeZone();
-  const zonedNow = getTimeZoneDateParts(now, effectiveTimeZone);
-
-  const year = zonedNow.year;
-  const month = zonedNow.month;
-  const day = zonedNow.day;
-  const currentHour = zonedNow.hour;
-  const currentMinute = zonedNow.minute;
-
-  let targetYear = year;
-  let targetMonth = month;
-  let targetDay = day;
-
-  if (hour < currentHour || (hour === currentHour && minute <= currentMinute)) {
-    const nextDay = getNextCalendarDayParts(year, month, day);
-    targetYear = nextDay.year;
-    targetMonth = nextDay.month;
-    targetDay = nextDay.day;
-  }
-
-  return zonedDateTimeToUtcDate(effectiveTimeZone, targetYear, targetMonth, targetDay, hour, minute);
-}
-
 function formatFiveHourResetSubtitle(resetsAt) {
   const strings = getUiStrings();
-  const target = parseFiveHourResetTime(resetsAt);
-  if (!target) {
+  const countdown = formatFiveHourResetCountdown(resetsAt, getConfiguredTimeZone(), new Date());
+  if (!countdown) {
     return strings.fiveHourSubtitleUnknown;
   }
-
-  const diffMs = target.getTime() - Date.now();
-  if (diffMs <= 0) {
+  if (countdown.hours === 0 && countdown.minutes === 0) {
     return strings.fiveHourSubtitleZero;
   }
-
-  const totalMinutes = Math.ceil(diffMs / 60000);
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  return strings.fiveHourSubtitle(hours, minutes);
+  return strings.fiveHourSubtitle(countdown.hours, countdown.minutes);
 }
 
 function formatWeeklyResetSubtitle(menuSubtitle, resetsAt) {

@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
+const { isCurrentSessionResetText } = require("./quota-time");
 
 const dataDir = path.join(__dirname, "..", "data");
 const quotaPath = path.join(dataDir, "quota.json");
@@ -352,6 +353,10 @@ function parseClaudeStatusUsage(rawText) {
   }
 
   if (!fiveHour || !weekly) {
+    return null;
+  }
+
+  if (!isCurrentSessionResetText(fiveHour.resetsAt)) {
     return null;
   }
 
