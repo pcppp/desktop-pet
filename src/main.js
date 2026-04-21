@@ -39,7 +39,8 @@ const replyBubblePath = path.join(__dirname, "reply-bubble.html");
 const REPLY_BUBBLE_WIDTH = 340;
 const REPLY_BUBBLE_HEIGHT = 132;
 const REPLY_BUBBLE_MARGIN = 12;
-const REPLY_BUBBLE_HIDE_DELAY_MS = 4200;
+const REPLY_BUBBLE_HIDE_DELAY_MS = 8000;
+const REPLY_BUBBLE_HOVER_LEAVE_HIDE_DELAY_MS = 3000;
 
 let mainWindow;
 let replyBubbleWindow;
@@ -438,6 +439,9 @@ function ensureReplyBubbleWindow() {
       return;
     }
 
+    replyBubbleWindow.webContents.send("reply-bubble:layout", {
+      side: pendingReplyBubblePayload.side || "right"
+    });
     replyBubbleWindow.webContents.send("reply-bubble:show", pendingReplyBubblePayload);
   });
   replyBubbleWindow.on("closed", () => {
@@ -449,26 +453,65 @@ function ensureReplyBubbleWindow() {
 
 function getReplyBubblePosition() {
   if (!mainWindow || mainWindow.isDestroyed()) {
-    return { x: 160, y: 120 };
+    return { x: 160, y: 120, side: "right" };
   }
 
-  const [windowX, windowY] = mainWindow.getPosition();
-  const [windowWidth] = mainWindow.getSize();
-  const anchorX = windowX + windowWidth + REPLY_BUBBLE_MARGIN;
-  const anchorY = windowY + 10;
-  const display = screen.getDisplayNearestPoint({ x: anchorX, y: anchorY });
+  const petBounds = mainWindow.getBounds();
+  const petCenter = {
+    x: petBounds.x + Math.round(petBounds.width / 2),
+    y: petBounds.y + Math.round(petBounds.height / 2)
+  };
+  const display = screen.getDisplayNearestPoint(petCenter);
   const workArea = display.workArea;
+  const rightSpace = workArea.x + workArea.width - (petBounds.x + petBounds.width) - REPLY_BUBBLE_MARGIN;
+  const leftSpace = petBounds.x - workArea.x - REPLY_BUBBLE_MARGIN;
+  const side = rightSpace >= REPLY_BUBBLE_WIDTH || rightSpace >= leftSpace
+    ? "right"
+    : "left";
+  const desiredX = side === "right"
+    ? petBounds.x + petBounds.width + REPLY_BUBBLE_MARGIN
+    : petBounds.x - REPLY_BUBBLE_WIDTH - REPLY_BUBBLE_MARGIN;
+  const desiredY = petBounds.y + Math.round((petBounds.height - REPLY_BUBBLE_HEIGHT) / 2);
 
   const x = Math.min(
     workArea.x + workArea.width - REPLY_BUBBLE_WIDTH - REPLY_BUBBLE_MARGIN,
-    Math.max(workArea.x + REPLY_BUBBLE_MARGIN, anchorX)
+    Math.max(workArea.x + REPLY_BUBBLE_MARGIN, desiredX)
   );
   const y = Math.min(
     workArea.y + workArea.height - REPLY_BUBBLE_HEIGHT - REPLY_BUBBLE_MARGIN,
-    Math.max(workArea.y + REPLY_BUBBLE_MARGIN, anchorY)
+    Math.max(workArea.y + REPLY_BUBBLE_MARGIN, desiredY)
   );
 
-  return { x, y };
+  return { x, y, side };
+}
+
+function applyReplyBubblePosition(bubble) {
+  if (!bubble || bubble.isDestroyed()) {
+    return { x: 160, y: 120, side: "right" };
+  }
+
+  const placement = getReplyBubblePosition();
+  bubble.setBounds({
+    x: placement.x,
+    y: placement.y,
+    width: REPLY_BUBBLE_WIDTH,
+    height: REPLY_BUBBLE_HEIGHT
+  });
+
+  if (pendingReplyBubblePayload) {
+    pendingReplyBubblePayload = {
+      ...pendingReplyBubblePayload,
+      side: placement.side
+    };
+  }
+
+  if (!bubble.webContents.isLoadingMainFrame()) {
+    bubble.webContents.send("reply-bubble:layout", {
+      side: placement.side
+    });
+  }
+
+  return placement;
 }
 
 function showReplyBubble(text) {
@@ -478,21 +521,16 @@ function showReplyBubble(text) {
   }
 
   const bubble = ensureReplyBubbleWindow();
-  const { x, y } = getReplyBubblePosition();
   const previewText = truncateReplyPreview(fullText);
 
   isReplyBubbleHovered = false;
   pendingReplyBubblePayload = {
     previewText,
-    fullText
+    fullText,
+    side: "right"
   };
-  bubble.setPosition(x, y);
-  bubble.setBounds({
-    x,
-    y,
-    width: REPLY_BUBBLE_WIDTH,
-    height: REPLY_BUBBLE_HEIGHT
-  });
+  const placement = applyReplyBubblePosition(bubble);
+  pendingReplyBubblePayload.side = placement.side;
   bubble.showInactive();
   if (!bubble.webContents.isLoadingMainFrame()) {
     bubble.webContents.send("reply-bubble:show", pendingReplyBubblePayload);
@@ -855,8 +893,7 @@ ipcMain.on("pet:drag-move", (_event, offset) => {
   );
 
   if (replyBubbleWindow && !replyBubbleWindow.isDestroyed() && replyBubbleWindow.isVisible()) {
-    const nextPosition = getReplyBubblePosition();
-    replyBubbleWindow.setPosition(nextPosition.x, nextPosition.y);
+    applyReplyBubblePosition(replyBubbleWindow);
   }
 });
 
@@ -868,5 +905,5 @@ ipcMain.on("reply-bubble:hovered", (_event, payload) => {
     return;
   }
 
-  scheduleReplyBubbleHide(250);
+  scheduleReplyBubbleHide(REPLY_BUBBLE_HOVER_LEAVE_HIDE_DELAY_MS);
 });

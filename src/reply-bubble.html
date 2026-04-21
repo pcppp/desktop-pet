@@ -7,10 +7,10 @@
     <style>
       :root {
         color-scheme: light;
-        --bg: rgba(255, 248, 236, 0.98);
-        --border: rgba(53, 34, 20, 0.92);
-        --shadow: rgba(33, 20, 11, 0.22);
-        --text: #2f1b11;
+        --bg: rgba(255, 255, 255, 0.995);
+        --border: #111111;
+        --shadow: rgba(0, 0, 0, 0.18);
+        --text: #111111;
       }
 
       * {
@@ -28,18 +28,51 @@
       }
 
       body {
-        padding: 10px;
+        padding: 12px;
       }
 
       #bubble {
+        position: relative;
         width: 100%;
         height: 100%;
-        border: 2px solid var(--border);
-        border-radius: 14px;
+        border: 3px solid var(--border);
+        border-radius: 18px;
         background: var(--bg);
-        box-shadow: 0 14px 34px var(--shadow);
+        box-shadow: 0 12px 28px var(--shadow);
         color: var(--text);
         overflow: hidden;
+      }
+
+      #bubble::before,
+      #bubble::after {
+        content: "";
+        position: absolute;
+        top: calc(50% - 12px);
+        width: 0;
+        height: 0;
+        border-top: 12px solid transparent;
+        border-bottom: 12px solid transparent;
+        pointer-events: none;
+      }
+
+      #bubble[data-side="right"]::before {
+        left: -16px;
+        border-right: 16px solid var(--border);
+      }
+
+      #bubble[data-side="right"]::after {
+        left: -11px;
+        border-right: 13px solid var(--bg);
+      }
+
+      #bubble[data-side="left"]::before {
+        right: -16px;
+        border-left: 16px solid var(--border);
+      }
+
+      #bubble[data-side="left"]::after {
+        right: -11px;
+        border-left: 13px solid var(--bg);
       }
 
       #content {
@@ -47,8 +80,8 @@
         height: 100%;
         padding: 14px 16px;
         overflow: auto;
-        font-size: 13px;
-        line-height: 1.55;
+        font-size: 14px;
+        line-height: 1.5;
         white-space: pre-wrap;
         word-break: break-word;
       }
@@ -73,10 +106,11 @@
     </style>
   </head>
   <body>
-    <div id="bubble">
+    <div id="bubble" data-side="right">
       <div id="content" class="collapsed"></div>
     </div>
     <script>
+      const bubble = document.getElementById("bubble");
       const content = document.getElementById("content");
       let expanded = false;
 
@@ -109,6 +143,10 @@
       window.replyBubbleBridge.onHide(() => {
         setExpanded(false);
         content.scrollTop = 0;
+      });
+
+      window.replyBubbleBridge.onLayout((payload) => {
+        bubble.dataset.side = payload && payload.side === "left" ? "left" : "right";
       });
 
       document.body.addEventListener("mouseenter", () => {

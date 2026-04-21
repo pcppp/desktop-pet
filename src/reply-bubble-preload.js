@@ -15,6 +15,13 @@ contextBridge.exposeInMainWorld("replyBubbleBridge", {
       ipcRenderer.removeListener("reply-bubble:hide", listener);
     };
   },
+  onLayout: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("reply-bubble:layout", listener);
+    return () => {
+      ipcRenderer.removeListener("reply-bubble:layout", listener);
+    };
+  },
   hovered: (hovered) => {
     ipcRenderer.send("reply-bubble:hovered", { hovered });
   }
