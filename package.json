@@ -1,0 +1,32 @@
+{
+  "name": "claude-desktop-pet-mvp",
+  "version": "0.1.0",
+  "description": "Minimal runnable Electron + React + Vite desktop pet MVP with click, idle, and external reply-finished triggers.",
+  "main": "src/main.js",
+  "scripts": {
+    "dev": "vite",
+    "start": "electron .",
+    "build:ui": "vite build --base=./",
+    "start:built": "npm run build:ui && electron .",
+    "start:dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && env ELECTRON_RENDERER_URL=http://127.0.0.1:5173 electron .\"",
+    "trigger:reply": "node scripts/trigger-reply-finished.js",
+    "quota:demo": "node scripts/update-quotas.js",
+    "quota:sync": "node scripts/sync-quotas-from-claude-status.js"
+  },
+  "keywords": [
+    "electron",
+    "desktop-pet",
+    "steam-mvp"
+  ],
+  "author": "Codex",
+  "license": "MIT",
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.0.1",
+    "concurrently": "^9.2.1",
+    "electron": "^41.2.1",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "vite": "^8.0.9",
+    "wait-on": "^9.0.5"
+  }
+}
