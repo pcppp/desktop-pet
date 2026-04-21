@@ -39,37 +39,57 @@ function createEmptyQuota() {
 }
 
 function normalizeBucket(bucket, fallbackLabel) {
-  if (!bucket || typeof bucket !== "object") {
+  const isCurrentSession = fallbackLabel === "Current session";
+  const defaultMenuTitle = isCurrentSession ? "5小时 limit --" : "Weekly Limits --";
+  const defaultMenuSubtitle = isCurrentSession ? "Resets in Unknown" : "Resets Unknown";
+
+  const sanitizeCurrentSessionBucket = (normalizedBucket) => {
+    if (!isCurrentSession) {
+      return normalizedBucket;
+    }
+
+    if (isCurrentSessionResetText(normalizedBucket.resetsAt)) {
+      return normalizedBucket;
+    }
+
     return {
+      ...normalizedBucket,
+      resetsAt: "Unknown",
+      menuSubtitle: defaultMenuSubtitle
+    };
+  };
+
+  if (!bucket || typeof bucket !== "object") {
+    return sanitizeCurrentSessionBucket({
       label: fallbackLabel,
       display: "Unavailable",
       usedPercent: null,
       resetsAt: "Unknown",
-      menuTitle: fallbackLabel === "Current session" ? "5小时 limit --" : "Weekly Limits --",
-      menuSubtitle: fallbackLabel === "Current session" ? "Resets in Unknown" : "Resets Unknown"
-    };
+      menuTitle: defaultMenuTitle,
+      menuSubtitle: defaultMenuSubtitle
+    });
   }
 
   if (typeof bucket.display === "string") {
-    return {
+    return sanitizeCurrentSessionBucket({
       label: typeof bucket.label === "string" ? bucket.label : fallbackLabel,
       display: bucket.display,
       usedPercent: Number.isFinite(bucket.usedPercent) ? bucket.usedPercent : null,
       resetsAt: typeof bucket.resetsAt === "string" ? bucket.resetsAt : "Unknown",
       menuTitle: typeof bucket.menuTitle === "string" ? bucket.menuTitle : undefined,
       menuSubtitle: typeof bucket.menuSubtitle === "string" ? bucket.menuSubtitle : undefined
-    };
+    });
   }
 
   if (Number.isFinite(bucket.usedPercent)) {
-    return {
+    return sanitizeCurrentSessionBucket({
       label: typeof bucket.label === "string" ? bucket.label : fallbackLabel,
       display: `${bucket.usedPercent}% used`,
       usedPercent: bucket.usedPercent,
       resetsAt: typeof bucket.resetsAt === "string" ? bucket.resetsAt : "Unknown",
       menuTitle: typeof bucket.menuTitle === "string" ? bucket.menuTitle : undefined,
       menuSubtitle: typeof bucket.menuSubtitle === "string" ? bucket.menuSubtitle : undefined
-    };
+    });
   }
 
   if (Number.isFinite(bucket.used) && Number.isFinite(bucket.limit)) {
@@ -77,24 +97,24 @@ function normalizeBucket(bucket, fallbackLabel) {
       ? Math.round((bucket.used / bucket.limit) * 100)
       : null;
 
-    return {
+    return sanitizeCurrentSessionBucket({
       label: typeof bucket.label === "string" ? bucket.label : fallbackLabel,
       display: `${bucket.used}/${bucket.limit}`,
       usedPercent,
       resetsAt: typeof bucket.resetsAt === "string" ? bucket.resetsAt : "Unknown",
       menuTitle: typeof bucket.menuTitle === "string" ? bucket.menuTitle : undefined,
       menuSubtitle: typeof bucket.menuSubtitle === "string" ? bucket.menuSubtitle : undefined
-    };
+    });
   }
 
-  return {
+  return sanitizeCurrentSessionBucket({
     label: fallbackLabel,
     display: "Unavailable",
     usedPercent: null,
     resetsAt: "Unknown",
-    menuTitle: fallbackLabel === "Current session" ? "5小时 limit --" : "Weekly Limits --",
-    menuSubtitle: fallbackLabel === "Current session" ? "Resets in Unknown" : "Resets Unknown"
-  };
+    menuTitle: defaultMenuTitle,
+    menuSubtitle: defaultMenuSubtitle
+  });
 }
 
 function formatUsageDisplay(bucket, fallbackLabel) {

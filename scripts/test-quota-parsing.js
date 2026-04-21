@@ -1,5 +1,5 @@
 const assert = require("assert");
-const { parseClaudeStatusUsage } = require("../src/quota-source");
+const { normalizeQuota, parseClaudeStatusUsage } = require("../src/quota-source");
 const { formatFiveHourResetCountdown, isCurrentSessionResetText } = require("../src/quota-time");
 
 function testCurrentSessionResetValidation() {
@@ -36,12 +36,41 @@ function testRejectsBadFiveHourReset() {
   assert.equal(quota, null);
 }
 
+function testSanitizesCorruptedFiveHourCache() {
+  const quota = normalizeQuota({
+    source: "claude-status",
+    fiveHour: {
+      label: "Current session",
+      display: "60% used",
+      usedPercent: 60,
+      resetsAt: "Apr 27 at 2pm (Asia/Shanghai)",
+      menuTitle: "5小时 limit 60%",
+      menuSubtitle: "Resets in Apr 27 2:00 PM"
+    },
+    weekly: {
+      label: "Current week (all models)",
+      display: "27% used",
+      usedPercent: 27,
+      resetsAt: "Apr 27 at 2pm (Asia/Shanghai)",
+      menuTitle: "Weekly Limits 27%",
+      menuSubtitle: "Resets Apr 27 2:00 PM"
+    },
+    updatedAt: "2026-04-21T10:37:05.789Z"
+  });
+
+  assert.equal(quota.fiveHour.display, "60% used");
+  assert.equal(quota.fiveHour.usedPercent, 60);
+  assert.equal(quota.fiveHour.resetsAt, "Unknown");
+  assert.equal(quota.fiveHour.menuSubtitle, "Resets in Unknown");
+}
+
 function main() {
   testCurrentSessionResetValidation();
   testFiveHourCountdown();
   testFiveHourCountdownInShanghaiTimeZone();
   testCollapsedStatusParsing();
   testRejectsBadFiveHourReset();
+  testSanitizesCorruptedFiveHourCache();
   console.log("quota parsing tests passed");
 }
 
