@@ -3,9 +3,10 @@ import replyFinishedDefaultUrl from "../assets/reply-finished-default.mp3";
 
 const IDLE_TIMEOUT_MS = 15000;
 const DRAG_SOUND_THROTTLE_MS = 180;
-const PIXEL_WIDTH = 40;
-const PIXEL_HEIGHT = 40;
-const CUSTOM_PIXEL_SCALE = 2.8;
+const PIXEL_WIDTH = 56;
+const PIXEL_HEIGHT = 56;
+const CUSTOM_PIXEL_SCALE = 2.1;
+const CUSTOM_PIXEL_COLOR_LEVELS = 10;
 const DEFAULT_SOUND_SETTINGS = {
   masterMuted: false,
   masterVolume: 75,
@@ -37,7 +38,7 @@ const DEFAULT_SOUND_ASSETS = {
   replyFinished: replyFinishedDefaultUrl
 };
 
-function quantizeChannel(value, levels = 6) {
+function quantizeChannel(value, levels = CUSTOM_PIXEL_COLOR_LEVELS) {
   if (levels <= 1) {
     return value;
   }
@@ -65,7 +66,7 @@ function createPixelArtDataUrl(imageSource, size = { width: PIXEL_WIDTH, height:
       }
 
       sourceContext.clearRect(0, 0, sourceWidth, sourceHeight);
-      sourceContext.imageSmoothingEnabled = false;
+      sourceContext.imageSmoothingEnabled = true;
       sourceContext.drawImage(image, 0, 0);
 
       const sourceImageData = sourceContext.getImageData(0, 0, sourceWidth, sourceHeight);
@@ -82,7 +83,7 @@ function createPixelArtDataUrl(imageSource, size = { width: PIXEL_WIDTH, height:
       }
 
       sampleContext.clearRect(0, 0, targetWidth, targetHeight);
-      sampleContext.imageSmoothingEnabled = false;
+      sampleContext.imageSmoothingEnabled = true;
 
       const sourceRatio = sourceBounds.width / sourceBounds.height;
       const targetRatio = targetWidth / targetHeight;
