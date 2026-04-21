@@ -65,6 +65,21 @@ select {
   animation: shadow-breathe 2.4s infinite steps(4);
 }
 
+.pixel-frame-shell {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 148px;
+  height: 176px;
+}
+
+.pixel-frame-canvas {
+  display: block;
+  image-rendering: pixelated;
+  filter: drop-shadow(6px 8px 0 rgba(24, 15, 10, 0.18));
+}
+
 .pixel-pet-shell,
 .pixel-girl-shell,
 .custom-pet-shell {

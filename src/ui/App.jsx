@@ -1,5 +1,6 @@
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import replyFinishedDefaultUrl from "../assets/reply-finished-default.mp3";
+import PixelPetCanvas from "./PixelPetCanvas";
 
 const IDLE_TIMEOUT_MS = 15000;
 const DRAG_SOUND_THROTTLE_MS = 180;
@@ -33,36 +34,6 @@ const DEFAULT_SOUND_PATTERNS = {
 const DEFAULT_SOUND_ASSETS = {
   replyFinished: replyFinishedDefaultUrl
 };
-
-function PresetPixelPet({ presetId }) {
-  const presetClassName = `preset-${presetId || "default"}`;
-  return (
-    <div className={`pixel-girl-shell ${presetClassName}`}>
-      <div className="pixel-girl-back-hair"></div>
-      <div className="pixel-girl-hair-bob left"></div>
-      <div className="pixel-girl-hair-bob right"></div>
-      <div className="pixel-girl-ribbon left"></div>
-      <div className="pixel-girl-ribbon right"></div>
-      <div className="pixel-pet-body">
-        <div className="pixel-pet-face">
-          <span className="pixel-eye left"></span>
-          <span className="pixel-eye right"></span>
-          <span className="pixel-mouth"></span>
-          <span className="pixel-blush left"></span>
-          <span className="pixel-blush right"></span>
-        </div>
-        <div className="pixel-girl-fringe"></div>
-        <div className="pixel-girl-collar"></div>
-        <div className="pixel-girl-badge">
-          {presetId === "moonlight" ? "ME" : presetId === "mint" ? "MN" : presetId === "sakura" ? "SK" : "CC"}
-        </div>
-      </div>
-      <div className="pixel-girl-skirt"></div>
-      <div className="pixel-girl-sleeve left"></div>
-      <div className="pixel-girl-sleeve right"></div>
-    </div>
-  );
-}
 
 export default function App() {
   const [state, setState] = useState("idle");
@@ -230,10 +201,10 @@ export default function App() {
 
     const disposeTrigger = window.petBridge.onTrigger((payload) => {
       if (payload.trigger === "reply-finished") {
-        showState("reply", "Claude Code reply finished");
+        showState("reply", "Claude Code reply finished", 820);
         void playActionSound("replyFinished");
       } else if (payload.trigger === "quota-updated") {
-        showState("reply", "Quota refreshed");
+        showState("reply", "Quota refreshed", 820);
       }
       scheduleIdle();
     });
@@ -267,7 +238,7 @@ export default function App() {
   }, [getAudioContext, playActionSound, scheduleIdle, showState]);
 
   const handleClick = () => {
-    showState("click", "Clicked");
+    showState("click", "Clicked", 420);
     void playActionSound("click");
     scheduleIdle();
   };
@@ -352,7 +323,12 @@ export default function App() {
           </div>
         ) : (
           <div ref={spriteRef}>
-            <PresetPixelPet presetId={appearance.presetId} />
+            <PixelPetCanvas
+              presetId={appearance.presetId}
+              motionModule={appearance.motionModule}
+              state={state}
+              animationCycle={animationCycle}
+            />
           </div>
         )}
       </div>
