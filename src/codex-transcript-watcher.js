@@ -41,20 +41,16 @@ function isCodexReplyFinishedRecord(record) {
     return false;
   }
 
-  if (record.type !== "assistant") {
+  if (record.type !== "event_msg") {
     return false;
   }
 
-  const message = record.message;
-  if (!message || typeof message !== "object") {
+  const payload = record.payload;
+  if (!payload || typeof payload !== "object") {
     return false;
   }
 
-  if (message.role !== "assistant") {
-    return false;
-  }
-
-  return message.stop_reason === "end_turn";
+  return payload.type === "task_complete";
 }
 
 function extractCodexReplyText(record) {
@@ -62,22 +58,47 @@ function extractCodexReplyText(record) {
     return "";
   }
 
-  const message = record.message;
-  if (!message || typeof message !== "object") {
+  const payload = record.payload;
+  if (!payload || typeof payload !== "object") {
     return "";
   }
 
-  if (typeof message.content === "string") {
-    return normalizeReplyText(message.content);
+  if (typeof payload.last_agent_message === "string") {
+    return normalizeReplyText(payload.last_agent_message);
   }
 
-  if (!Array.isArray(message.content)) {
+  if (typeof payload.message === "string") {
+    return normalizeReplyText(payload.message);
+  }
+
+  if (record.previousRecord && typeof record.previousRecord === "object") {
+    return extractCodexReplyText(record.previousRecord);
+  }
+
+  return "";
+}
+
+function extractCodexAssistantText(record) {
+  if (!record || typeof record !== "object") {
+    return "";
+  }
+
+  if (record.type !== "response_item") {
+    return "";
+  }
+
+  const payload = record.payload;
+  if (!payload || typeof payload !== "object") {
+    return "";
+  }
+
+  if (payload.type !== "message" || payload.role !== "assistant" || !Array.isArray(payload.content)) {
     return "";
   }
 
   return normalizeReplyText(
-    message.content
-      .filter((block) => block && typeof block === "object" && block.type === "text" && typeof block.text === "string")
+    payload.content
+      .filter((block) => block && typeof block === "object" && block.type === "output_text" && typeof block.text === "string")
       .map((block) => block.text)
       .join("\n\n")
   );
@@ -156,6 +177,7 @@ function createCodexTranscriptWatcher(options = {}) {
       queued: false,
       processing: false,
       remainder: "",
+      lastAssistantReplyText: "",
       lastKnownMtimeMs: startAtEnd ? stat.mtimeMs : 0,
       lastKnownSize: startAtEnd ? stat.size : 0
     };
@@ -172,29 +194,41 @@ function createCodexTranscriptWatcher(options = {}) {
     }
   }
 
-  function handleRecord(filePath, line, stat) {
+  function handleRecord(filePath, line, stat, previousRecord, state) {
     const trimmedLine = line.trim();
     if (!trimmedLine) {
-      return;
+      return previousRecord;
     }
 
     let record;
     try {
       record = JSON.parse(trimmedLine);
     } catch {
-      return;
+      return previousRecord;
+    }
+
+    const assistantReplyText = extractCodexAssistantText(record);
+    if (assistantReplyText) {
+      state.lastAssistantReplyText = assistantReplyText;
     }
 
     if (!isCodexReplyFinishedRecord(record)) {
-      return;
+      return record;
     }
+
+    const replyText = extractCodexReplyText({
+      ...record,
+      previousRecord
+    }) || state.lastAssistantReplyText;
 
     onReplyFinished({
       filePath,
       record,
       fileMtimeMs: stat ? stat.mtimeMs : undefined,
-      replyText: extractCodexReplyText(record)
+      replyText
     });
+
+    return record;
   }
 
   async function processFile(filePath) {
@@ -247,8 +281,10 @@ function createCodexTranscriptWatcher(options = {}) {
     const lines = text.split(/\r?\n/);
     state.remainder = hasTrailingNewline ? "" : (lines.pop() || "");
 
+    let previousRecord = null;
+
     for (const line of lines) {
-      handleRecord(filePath, line, stat);
+      previousRecord = handleRecord(filePath, line, stat, previousRecord, state);
     }
   }
 
@@ -394,5 +430,6 @@ function createCodexTranscriptWatcher(options = {}) {
 module.exports = {
   createCodexTranscriptWatcher,
   isCodexReplyFinishedRecord,
-  extractCodexReplyText
+  extractCodexReplyText,
+  extractCodexAssistantText
 };
