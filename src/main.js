@@ -37,6 +37,8 @@ const dataDir = path.join(__dirname, "..", "data");
 const eventPath = path.join(dataDir, "events.ndjson");
 const distPath = path.join(__dirname, "..", "dist", "index.html");
 const replyBubblePath = path.join(__dirname, "reply-bubble.html");
+const PET_BUBBLE_ANCHOR_SIZE = 100;
+const PET_BUBBLE_ANCHOR_TOP = 40;
 const REPLY_BUBBLE_SIZE_MAP = {
   small: { width: 280, height: 116 },
   medium: { width: 340, height: 132 },
@@ -508,14 +510,28 @@ function ensureReplyBubbleWindow() {
   return replyBubbleWindow;
 }
 
-function getReplyBubblePosition() {
+function getPetBubbleAnchorBounds() {
   if (!mainWindow || mainWindow.isDestroyed()) {
-    const size = getReplyBubbleSize();
-    return { x: 160, y: 120, side: "right", width: size.width, height: size.height };
+    return {
+      x: 160,
+      y: 120,
+      width: PET_BUBBLE_ANCHOR_SIZE,
+      height: PET_BUBBLE_ANCHOR_SIZE
+    };
   }
 
+  const windowBounds = mainWindow.getBounds();
+  return {
+    x: windowBounds.x + Math.round((windowBounds.width - PET_BUBBLE_ANCHOR_SIZE) / 2),
+    y: windowBounds.y + PET_BUBBLE_ANCHOR_TOP,
+    width: PET_BUBBLE_ANCHOR_SIZE,
+    height: PET_BUBBLE_ANCHOR_SIZE
+  };
+}
+
+function getReplyBubblePosition() {
   const size = getReplyBubbleSize();
-  const petBounds = mainWindow.getBounds();
+  const petBounds = getPetBubbleAnchorBounds();
   const petCenter = {
     x: petBounds.x + Math.round(petBounds.width / 2),
     y: petBounds.y + Math.round(petBounds.height / 2)
