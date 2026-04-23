@@ -25,6 +25,9 @@ contextBridge.exposeInMainWorld("petBridge", {
   openContextMenu: (anchor) => {
     ipcRenderer.send("pet:open-context-menu", anchor);
   },
+  toggleSessionPanel: () => {
+    ipcRenderer.send("pet:toggle-session-panel");
+  },
   getAppearance: () => {
     return ipcRenderer.invoke("pet:get-appearance");
   },
@@ -42,6 +45,15 @@ contextBridge.exposeInMainWorld("petBridge", {
   },
   resetAppearance: () => {
     return ipcRenderer.invoke("pet:reset-appearance");
+  },
+  listSessions: () => {
+    return ipcRenderer.invoke("pet:list-sessions");
+  },
+  renameSession: (payload) => {
+    return ipcRenderer.invoke("pet:rename-session", payload);
+  },
+  openSession: (payload) => {
+    return ipcRenderer.invoke("pet:open-session", payload);
   },
   dragMove: (deltaX, deltaY) => {
     ipcRenderer.send("pet:drag-move", { deltaX, deltaY });

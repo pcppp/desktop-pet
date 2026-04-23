@@ -2,8 +2,17 @@ import { useEffect, useEffectEvent, useRef, useState } from "react";
 import replyFinishedDefaultUrl from "../assets/reply-finished-default.mp3";
 import PixelPetCanvas from "./PixelPetCanvas";
 
-const IDLE_TIMEOUT_MS = 15000;
+const LEGACY_IDLE_TIMEOUT_MS = 15000;
+const SLEEP_AFTER_INACTIVITY_MS = 10 * 60 * 1000;
+const BLINK_INTERVAL_MIN_MS = 6000;
+const BLINK_INTERVAL_MAX_MS = 11000;
+const BASE_BLINK_FRAME_MS = 120;
+const ATTENTION_FRAME_MS = 150;
+const SLEEP_FRAME_MS = 220;
+const WAKE_FRAME_MS = 180;
+const STRETCH_FRAME_MS = 170;
 const DRAG_SOUND_THROTTLE_MS = 180;
+
 const DEFAULT_SOUND_SETTINGS = {
   masterMuted: false,
   masterVolume: 75,
@@ -13,6 +22,7 @@ const DEFAULT_SOUND_SETTINGS = {
   idle: { mode: "silent", sourceAudioLabel: null, sourceDataUrl: null },
   updatedAt: null
 };
+
 const DEFAULT_SOUND_PATTERNS = {
   click: [
     { frequency: 880, duration: 0.06, volume: 0.14, type: "square" },
@@ -31,28 +41,63 @@ const DEFAULT_SOUND_PATTERNS = {
     { frequency: 550, duration: 0.09, volume: 0.065, type: "sine", delay: 0.075 }
   ]
 };
+
 const DEFAULT_SOUND_ASSETS = {
   replyFinished: replyFinishedDefaultUrl
 };
 
+function randomBlinkDelay() {
+  return BLINK_INTERVAL_MIN_MS + Math.floor(Math.random() * (BLINK_INTERVAL_MAX_MS - BLINK_INTERVAL_MIN_MS + 1));
+}
+
+function reverseFrames(frames) {
+  return [...frames].reverse();
+}
+
+function createBlinkCycle(frames) {
+  if (!Array.isArray(frames) || frames.length === 0) {
+    return [];
+  }
+
+  return [...frames, ...reverseFrames(frames)];
+}
+
 export default function App() {
-  const [state, setState] = useState("idle");
+  const [legacyState, setLegacyState] = useState("idle");
   const [animationCycle, setAnimationCycle] = useState(0);
   const [appearance, setAppearance] = useState({
     mode: "preset",
-    renderMode: "pixel",
+    renderMode: "sequence",
     presetId: "shygirl",
-    presetLabel: "Shy Knees Girl",
+    presetLabel: "Story Girl",
     motionModule: "sweet",
     motionModuleLabel: "Sweet",
     sourceImageLabel: null,
-    sourceDataUrl: null
+    sourceDataUrl: null,
+    actionFrames: null
   });
   const [soundSettings, setSoundSettings] = useState(DEFAULT_SOUND_SETTINGS);
+  const [sequenceFrame, setSequenceFrame] = useState(null);
+  const [sequenceState, setSequenceState] = useState("base");
+
   const spriteRef = useRef(null);
   const audioContextRef = useRef(null);
   const dragSoundAtRef = useRef(0);
   const customAudioPoolRef = useRef({});
+
+  const legacyIdleTimerRef = useRef(null);
+  const legacyHideTimerRef = useRef(null);
+
+  const blinkTimerRef = useRef(null);
+  const sleepTimerRef = useRef(null);
+  const actionTimerIdsRef = useRef(new Set());
+  const sequenceRunIdRef = useRef(0);
+  const sequenceModeRef = useRef("base");
+
+  const isSequenceAppearance = appearance.renderMode === "sequence"
+    && appearance.actionFrames
+    && Array.isArray(appearance.actionFrames.baseBlink)
+    && appearance.actionFrames.baseBlink.length > 0;
 
   const getAudioContext = useEffectEvent(() => {
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
@@ -85,8 +130,8 @@ export default function App() {
     if (!pattern) {
       return;
     }
-    const masterVolume = (soundSettings.masterVolume ?? 75) / 100;
 
+    const masterVolume = (soundSettings.masterVolume ?? 75) / 100;
     const baseTime = context.currentTime + 0.01;
 
     for (const note of pattern) {
@@ -155,27 +200,305 @@ export default function App() {
     await playDefaultSound(soundKey);
   });
 
-  const showState = useEffectEvent((nextState, _text, duration = 2200) => {
-    setState(nextState);
-    setAnimationCycle((cycle) => cycle + 1);
+  const clearActionTimers = useEffectEvent(() => {
+    for (const timerId of actionTimerIdsRef.current) {
+      window.clearTimeout(timerId);
+    }
+    actionTimerIdsRef.current.clear();
+  });
 
-    window.clearTimeout(showState.hideTimer);
-    showState.hideTimer = window.setTimeout(() => {
-      setState("idle");
+  const waitForActionFrame = useEffectEvent((delayMs) => {
+    return new Promise((resolve) => {
+      const timerId = window.setTimeout(() => {
+        actionTimerIdsRef.current.delete(timerId);
+        resolve();
+      }, delayMs);
+      actionTimerIdsRef.current.add(timerId);
+    });
+  });
+
+  const clearBlinkTimer = useEffectEvent(() => {
+    if (blinkTimerRef.current) {
+      window.clearTimeout(blinkTimerRef.current);
+      blinkTimerRef.current = null;
+    }
+  });
+
+  const clearSleepTimer = useEffectEvent(() => {
+    if (sleepTimerRef.current) {
+      window.clearTimeout(sleepTimerRef.current);
+      sleepTimerRef.current = null;
+    }
+  });
+
+  const getFrames = useEffectEvent((actionName) => {
+    const frames = appearance.actionFrames?.[actionName];
+    return Array.isArray(frames) ? frames.filter(Boolean) : [];
+  });
+
+  const getBaseFrame = useEffectEvent(() => {
+    const frames = getFrames("baseBlink");
+    return frames[0] || appearance.sourceDataUrl || null;
+  });
+
+  const resetLegacyHideTimer = useEffectEvent((duration = 2200) => {
+    if (legacyHideTimerRef.current) {
+      window.clearTimeout(legacyHideTimerRef.current);
+    }
+
+    legacyHideTimerRef.current = window.setTimeout(() => {
+      setLegacyState("idle");
     }, duration);
   });
 
-  const scheduleIdle = useEffectEvent(() => {
-    window.clearTimeout(scheduleIdle.timer);
-    scheduleIdle.timer = window.setTimeout(() => {
-      showState("idle", "Idle animation");
+  const scheduleLegacyIdle = useEffectEvent(() => {
+    if (isSequenceAppearance) {
+      return;
+    }
+
+    if (legacyIdleTimerRef.current) {
+      window.clearTimeout(legacyIdleTimerRef.current);
+    }
+
+    legacyIdleTimerRef.current = window.setTimeout(() => {
+      setLegacyState("idle");
       void playActionSound("idle");
-    }, IDLE_TIMEOUT_MS);
+    }, LEGACY_IDLE_TIMEOUT_MS);
+  });
+
+  const playFrames = useEffectEvent(async (frames, frameDelayMs, runId, endMode) => {
+    if (!frames.length) {
+      return sequenceRunIdRef.current === runId;
+    }
+
+    for (const frame of frames) {
+      if (sequenceRunIdRef.current !== runId) {
+        return false;
+      }
+
+      setSequenceFrame(frame);
+      if (endMode) {
+        setSequenceState(endMode);
+      }
+
+      await waitForActionFrame(frameDelayMs);
+    }
+
+    return sequenceRunIdRef.current === runId;
+  });
+
+  const scheduleSleepTimer = useEffectEvent(() => {
+    if (!isSequenceAppearance) {
+      return;
+    }
+
+    clearSleepTimer();
+    sleepTimerRef.current = window.setTimeout(() => {
+      void enterSleepSequence();
+    }, SLEEP_AFTER_INACTIVITY_MS);
+  });
+
+  const scheduleBlinkLoop = useEffectEvent(() => {
+    if (!isSequenceAppearance) {
+      return;
+    }
+
+    clearBlinkTimer();
+    blinkTimerRef.current = window.setTimeout(() => {
+      void playBaseBlink();
+    }, randomBlinkDelay());
+  });
+
+  const enterBaseLoop = useEffectEvent(() => {
+    if (!isSequenceAppearance) {
+      return;
+    }
+
+    sequenceModeRef.current = "base";
+    setSequenceState("base");
+    setSequenceFrame(getBaseFrame());
+    scheduleBlinkLoop();
+  });
+
+  const playBaseBlink = useEffectEvent(async () => {
+    if (!isSequenceAppearance || sequenceModeRef.current !== "base") {
+      return;
+    }
+
+    const blinkFrames = createBlinkCycle(getFrames("baseBlink"));
+    if (!blinkFrames.length) {
+      return;
+    }
+
+    const runId = sequenceRunIdRef.current + 1;
+    sequenceRunIdRef.current = runId;
+    sequenceModeRef.current = "blink";
+    setSequenceState("blink");
+
+    const completed = await playFrames(blinkFrames, BASE_BLINK_FRAME_MS, runId, "blink");
+    if (!completed) {
+      return;
+    }
+
+    if (sequenceRunIdRef.current !== runId) {
+      return;
+    }
+
+    enterBaseLoop();
+  });
+
+  const enterSleepSequence = useEffectEvent(async () => {
+    if (!isSequenceAppearance) {
+      return;
+    }
+
+    if (sequenceModeRef.current === "sleeping" || sequenceModeRef.current === "entering-sleep") {
+      return;
+    }
+
+    const frames = getFrames("sleep");
+    if (!frames.length) {
+      return;
+    }
+
+    clearBlinkTimer();
+    clearSleepTimer();
+
+    const runId = sequenceRunIdRef.current + 1;
+    sequenceRunIdRef.current = runId;
+    sequenceModeRef.current = "entering-sleep";
+    setSequenceState("entering-sleep");
+
+    const completed = await playFrames(frames, SLEEP_FRAME_MS, runId, "entering-sleep");
+    if (!completed || sequenceRunIdRef.current !== runId) {
+      return;
+    }
+
+    sequenceModeRef.current = "sleeping";
+    setSequenceState("sleeping");
+    setSequenceFrame(frames[frames.length - 1]);
+  });
+
+  const wakeFromSleep = useEffectEvent(async (reason) => {
+    if (!isSequenceAppearance) {
+      return;
+    }
+
+    if (sequenceModeRef.current !== "sleeping" && sequenceModeRef.current !== "entering-sleep") {
+      return;
+    }
+
+    const sleepFrames = getFrames("sleep");
+    const wakeFrames = reverseFrames(sleepFrames);
+    const followFrames = reason === "attention" ? getFrames("attention") : getFrames("stretch");
+
+    clearBlinkTimer();
+    clearSleepTimer();
+
+    const runId = sequenceRunIdRef.current + 1;
+    sequenceRunIdRef.current = runId;
+    sequenceModeRef.current = "waking";
+    setSequenceState("waking");
+
+    const wakeCompleted = await playFrames(wakeFrames, WAKE_FRAME_MS, runId, "waking");
+    if (!wakeCompleted || sequenceRunIdRef.current !== runId) {
+      return;
+    }
+
+    sequenceModeRef.current = reason === "attention" ? "attention" : "stretch";
+    setSequenceState(sequenceModeRef.current);
+    const followCompleted = await playFrames(
+      followFrames,
+      reason === "attention" ? ATTENTION_FRAME_MS : STRETCH_FRAME_MS,
+      runId,
+      sequenceModeRef.current
+    );
+
+    if (!followCompleted || sequenceRunIdRef.current !== runId) {
+      return;
+    }
+
+    scheduleSleepTimer();
+    enterBaseLoop();
+  });
+
+  const playAttention = useEffectEvent(async () => {
+    if (!isSequenceAppearance) {
+      return;
+    }
+
+    if (sequenceModeRef.current === "sleeping" || sequenceModeRef.current === "entering-sleep") {
+      await wakeFromSleep("attention");
+      return;
+    }
+
+    const attentionFrames = getFrames("attention");
+    if (!attentionFrames.length) {
+      enterBaseLoop();
+      return;
+    }
+
+    clearBlinkTimer();
+
+    const runId = sequenceRunIdRef.current + 1;
+    sequenceRunIdRef.current = runId;
+    sequenceModeRef.current = "attention";
+    setSequenceState("attention");
+
+    const completed = await playFrames(attentionFrames, ATTENTION_FRAME_MS, runId, "attention");
+    if (!completed || sequenceRunIdRef.current !== runId) {
+      return;
+    }
+
+    enterBaseLoop();
+  });
+
+  const recordActivity = useEffectEvent((reason) => {
+    if (isSequenceAppearance) {
+      scheduleSleepTimer();
+
+      if (reason === "reply-finished") {
+        void playAttention();
+      } else if (sequenceModeRef.current === "sleeping" || sequenceModeRef.current === "entering-sleep") {
+        void wakeFromSleep("stretch");
+      }
+
+      return;
+    }
+
+    scheduleLegacyIdle();
+  });
+
+  const handleBridgeTrigger = useEffectEvent((payload) => {
+    if (payload.trigger === "reply-finished") {
+      void playActionSound("replyFinished");
+
+      if (isSequenceAppearance) {
+        recordActivity("reply-finished");
+      } else {
+        setLegacyState("reply");
+        setAnimationCycle((cycle) => cycle + 1);
+        resetLegacyHideTimer(820);
+        scheduleLegacyIdle();
+      }
+    } else if (payload.trigger === "quota-updated" && !isSequenceAppearance) {
+      setLegacyState("reply");
+      setAnimationCycle((cycle) => cycle + 1);
+      resetLegacyHideTimer(820);
+    }
   });
 
   useEffect(() => {
-    const onMouseMove = () => scheduleIdle();
-    const onKeyDown = () => scheduleIdle();
+    const onMouseMove = () => {
+      if (!isSequenceAppearance) {
+        scheduleLegacyIdle();
+      }
+    };
+    const onKeyDown = () => {
+      if (!isSequenceAppearance) {
+        scheduleLegacyIdle();
+      }
+    };
     const unlockAudio = () => {
       const context = getAudioContext();
       if (context && context.state === "suspended") {
@@ -201,13 +524,7 @@ export default function App() {
     };
 
     const disposeTrigger = window.petBridge.onTrigger((payload) => {
-      if (payload.trigger === "reply-finished") {
-        showState("reply", "Claude Code reply finished", 820);
-        void playActionSound("replyFinished");
-      } else if (payload.trigger === "quota-updated") {
-        showState("reply", "Quota refreshed", 820);
-      }
-      scheduleIdle();
+      handleBridgeTrigger(payload);
     });
 
     const disposeAppearance = window.petBridge.onAppearance((payload) => {
@@ -220,7 +537,6 @@ export default function App() {
 
     void syncAppearance();
     void syncSoundSettings();
-    scheduleIdle();
 
     return () => {
       document.removeEventListener("mousemove", onMouseMove);
@@ -229,19 +545,59 @@ export default function App() {
       disposeTrigger();
       disposeAppearance();
       disposeSoundSettings();
-      window.clearTimeout(scheduleIdle.timer);
-      window.clearTimeout(showState.hideTimer);
+
+      if (legacyIdleTimerRef.current) {
+        window.clearTimeout(legacyIdleTimerRef.current);
+      }
+      if (legacyHideTimerRef.current) {
+        window.clearTimeout(legacyHideTimerRef.current);
+      }
+      clearBlinkTimer();
+      clearSleepTimer();
+      clearActionTimers();
+
       if (audioContextRef.current && audioContextRef.current.state !== "closed") {
         void audioContextRef.current.close().catch(() => {});
       }
+
       customAudioPoolRef.current = {};
     };
-  }, [getAudioContext, playActionSound, scheduleIdle, showState]);
+  }, [isSequenceAppearance]);
+
+  useEffect(() => {
+    clearBlinkTimer();
+    clearSleepTimer();
+    sequenceRunIdRef.current += 1;
+
+    if (isSequenceAppearance) {
+      sequenceModeRef.current = "base";
+      setSequenceState("base");
+      setSequenceFrame(getBaseFrame());
+      scheduleSleepTimer();
+      void playBaseBlink();
+      return;
+    }
+
+    setSequenceFrame(null);
+    setSequenceState("base");
+    setLegacyState("idle");
+    scheduleLegacyIdle();
+  }, [appearance, isSequenceAppearance]);
 
   const handleClick = () => {
-    showState("click", "Clicked", 420);
+    window.petBridge.toggleSessionPanel();
+
+    if (isSequenceAppearance) {
+      recordActivity("click");
+      void playActionSound("click");
+      return;
+    }
+
+    setLegacyState("click");
+    setAnimationCycle((cycle) => cycle + 1);
+    resetLegacyHideTimer(420);
     void playActionSound("click");
-    scheduleIdle();
+    scheduleLegacyIdle();
   };
 
   const handlePointerDown = (event) => {
@@ -252,6 +608,7 @@ export default function App() {
     let lastX = event.screenX;
     let lastY = event.screenY;
     let moved = false;
+    let dragActivityStarted = false;
 
     const onPointerMove = (moveEvent) => {
       const deltaX = moveEvent.screenX - lastX;
@@ -265,11 +622,16 @@ export default function App() {
       window.petBridge.dragMove(deltaX, deltaY);
       lastX = moveEvent.screenX;
       lastY = moveEvent.screenY;
+
+      if (!dragActivityStarted) {
+        dragActivityStarted = true;
+        recordActivity("drag");
+      }
+
       if (Date.now() - dragSoundAtRef.current >= DRAG_SOUND_THROTTLE_MS) {
         dragSoundAtRef.current = Date.now();
         void playActionSound("drag");
       }
-      scheduleIdle();
     };
 
     const onPointerUp = () => {
@@ -295,29 +657,47 @@ export default function App() {
       rightX: rect.right + 2,
       y: rect.top + (rect.height / 2)
     });
-    scheduleIdle();
+
+    if (!isSequenceAppearance) {
+      scheduleLegacyIdle();
+    }
   };
+
+  const rootStateClass = isSequenceAppearance ? "state-sequence" : `state-${legacyState}`;
 
   return (
     <main id="pet-root">
       <div
-        key={animationCycle}
+        key={isSequenceAppearance ? "sequence-pet" : animationCycle}
         id="pet"
-        className={`state-${state} ${appearance.mode === "custom" || appearance.renderMode === "image" ? "is-custom" : "is-preset"} motion-${appearance.motionModule || "sweet"} preset-${appearance.presetId || "default"}`}
+        className={`${rootStateClass} ${appearance.mode === "custom" || appearance.renderMode === "image" || appearance.renderMode === "sequence" ? "is-custom" : "is-preset"} motion-${appearance.motionModule || "sweet"} preset-${appearance.presetId || "default"} action-${sequenceState}`}
         title="Desktop Pet"
         onPointerDown={handlePointerDown}
         onContextMenu={handleContextMenu}
       >
         <div className="pet-shadow"></div>
-        {(appearance.mode === "custom" || appearance.renderMode === "image") && appearance.sourceDataUrl ? (
+        {isSequenceAppearance ? (
+          <div ref={spriteRef} className="custom-pet-shell sequence-pet-shell">
+            <img
+              className="custom-pet-image sequence-pet-image"
+              src={sequenceFrame || appearance.sourceDataUrl}
+              alt={appearance.sourceImageLabel || appearance.presetLabel || "Animated pet"}
+              draggable={false}
+              onDragStart={(dragEvent) => {
+                dragEvent.preventDefault();
+              }}
+            />
+            <div className="custom-pet-frame"></div>
+          </div>
+        ) : (appearance.mode === "custom" || appearance.renderMode === "image") && appearance.sourceDataUrl ? (
           <div ref={spriteRef} className="custom-pet-shell">
             <img
               className="custom-pet-image"
               src={appearance.sourceDataUrl}
               alt={appearance.sourceImageLabel || "Custom pet"}
               draggable={false}
-              onDragStart={(event) => {
-                event.preventDefault();
+              onDragStart={(dragEvent) => {
+                dragEvent.preventDefault();
               }}
             />
             <div className="custom-pet-frame"></div>
@@ -327,7 +707,7 @@ export default function App() {
             <PixelPetCanvas
               presetId={appearance.presetId}
               motionModule={appearance.motionModule}
-              state={state}
+              state={legacyState}
               animationCycle={animationCycle}
             />
           </div>

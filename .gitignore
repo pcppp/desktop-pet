@@ -3,6 +3,7 @@ dist/
 output/
 data/appearance/
 data/sound/
+data/sessions/
 data/quota.json
 data/menu-settings.json
 data/status-debug.txt

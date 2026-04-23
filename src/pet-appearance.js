@@ -11,6 +11,38 @@ const SUPPORTED_IMAGE_EXTENSIONS = new Set([
   ".bmp"
 ]);
 
+const SHYGIRL_ACTION_FILES = {
+  baseBlink: [
+    "person1/base-blink-base1-cutout/1.png",
+    "person1/base-blink-base1-cutout/2-2.png",
+    "person1/base-blink-base1-cutout/2-4.png",
+    "person1/base-blink-base1-cutout/3.png"
+  ],
+  attention: [
+    "person1/attention/ChatGPT Image 2026年4月22日 12_45_11.png",
+    "person1/attention/ChatGPT Image 2026年4月22日 12_45_18.png",
+    "person1/attention/8ab1662e-8cab-4845-a847-41fdced4cff2.png",
+    "person1/attention/4c9bdac4-a1a5-401b-9fea-287a995ec29f.png",
+    "person1/attention/9f30c8e8-4c98-4a7f-8d29-2f3305c30271.png"
+  ],
+  sleep: [
+    "person1/sleep/ChatGPT Image 2026年4月22日 12_45_02_副本.png",
+    "person1/sleep/ChatGPT Image 2026年4月22日 12_45_05.png",
+    "person1/sleep/ChatGPT Image 2026年4月22日 12_45_25.png",
+    "person1/sleep/ChatGPT Image 2026年4月22日 12_45_30.png",
+    "person1/sleep/ChatGPT Image 2026年4月22日 12_45_36.png",
+    "person1/sleep/ChatGPT Image 2026年4月22日 12_45_40.png"
+  ],
+  stretch: [
+    "person1/stretch/ChatGPT Image 2026年4月22日 12_45_02_副本.png",
+    "person1/stretch/ChatGPT Image 2026年4月22日 12_45_44.png",
+    "person1/stretch/ba75b26c-a23c-4cf2-8b21-3658d68b032d.png",
+    "person1/stretch/a5134cf7-5db5-4b9e-89dd-0f2ae030b9d6.png",
+    "person1/stretch/289e6238-49bf-4915-8681-256b99b3f4dd.png",
+    "person1/stretch/7bf9beb1-ae9a-4053-bb15-a907d86faf8e.png"
+  ]
+};
+
 const APPEARANCE_PRESETS = {
   default: {
     id: "default",
@@ -34,9 +66,9 @@ const APPEARANCE_PRESETS = {
   },
   shygirl: {
     id: "shygirl",
-    label: "Shy Knees Girl",
-    labelZh: "抱膝害羞少女",
-    builtInImageName: "shy-knees-girl.png"
+    label: "Story Girl",
+    labelZh: "默认人物 1",
+    builtInActionFiles: SHYGIRL_ACTION_FILES
   }
 };
 
@@ -225,15 +257,52 @@ function getBuiltInPresetImagePath(presetId) {
   return path.join(builtInPetImageDir, preset.builtInImageName);
 }
 
+function readImageAsDataUrl(filePath) {
+  const buffer = fs.readFileSync(filePath);
+  const mimeType = getMimeTypeFromImagePath(filePath);
+  return `data:${mimeType};base64,${buffer.toString("base64")}`;
+}
+
+function getBuiltInPresetActionFrames(presetId) {
+  const preset = getAppearancePreset(presetId);
+  if (!preset.builtInActionFiles) {
+    return null;
+  }
+
+  const actionFrames = {};
+
+  for (const [actionName, relativePaths] of Object.entries(preset.builtInActionFiles)) {
+    actionFrames[actionName] = (relativePaths || [])
+      .map((relativePath) => path.join(builtInPetImageDir, relativePath))
+      .filter((filePath) => fs.existsSync(filePath))
+      .map((filePath) => readImageAsDataUrl(filePath));
+  }
+
+  return actionFrames;
+}
+
 function toRendererPresetAppearance(appearance) {
   const presetId = normalizePresetId(appearance.presetId);
   const preset = getAppearancePreset(presetId);
+  const builtInActionFrames = getBuiltInPresetActionFrames(presetId);
   const builtInImagePath = getBuiltInPresetImagePath(presetId);
 
-  if (builtInImagePath && fs.existsSync(builtInImagePath)) {
-    const buffer = fs.readFileSync(builtInImagePath);
-    const mimeType = getMimeTypeFromImagePath(builtInImagePath);
+  if (builtInActionFrames && builtInActionFrames.baseBlink && builtInActionFrames.baseBlink.length > 0) {
+    return {
+      mode: "preset",
+      renderMode: "sequence",
+      presetId,
+      presetLabel: preset.label,
+      motionModule: normalizeMotionModule(appearance.motionModule),
+      motionModuleLabel: getMotionModule(appearance.motionModule).label,
+      sourceImageLabel: preset.label,
+      sourceDataUrl: builtInActionFrames.baseBlink[0],
+      actionFrames: builtInActionFrames,
+      updatedAt: appearance.updatedAt
+    };
+  }
 
+  if (builtInImagePath && fs.existsSync(builtInImagePath)) {
     return {
       mode: "preset",
       renderMode: "image",
@@ -242,7 +311,8 @@ function toRendererPresetAppearance(appearance) {
       motionModule: normalizeMotionModule(appearance.motionModule),
       motionModuleLabel: getMotionModule(appearance.motionModule).label,
       sourceImageLabel: preset.label,
-      sourceDataUrl: `data:${mimeType};base64,${buffer.toString("base64")}`,
+      sourceDataUrl: readImageAsDataUrl(builtInImagePath),
+      actionFrames: null,
       updatedAt: appearance.updatedAt
     };
   }
@@ -256,6 +326,7 @@ function toRendererPresetAppearance(appearance) {
     motionModuleLabel: getMotionModule(appearance.motionModule).label,
     sourceImageLabel: null,
     sourceDataUrl: null,
+    actionFrames: null,
     updatedAt: appearance.updatedAt
   };
 }
@@ -305,6 +376,7 @@ function toRendererAppearance(baseDir, appearanceInput) {
     motionModuleLabel: getMotionModule(appearance.motionModule).label,
     sourceImageLabel: appearance.sourceImageLabel,
     sourceDataUrl: `data:${mimeType};base64,${buffer.toString("base64")}`,
+    actionFrames: null,
     updatedAt: appearance.updatedAt
   };
 }

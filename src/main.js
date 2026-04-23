@@ -1,6 +1,9 @@
 const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, dialog, screen } = require("electron");
+const { execFileSync } = require("child_process");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
+const { pathToFileURL } = require("url");
 const {
   quotaPath,
   readQuota,
@@ -12,6 +15,11 @@ const {
 } = require("./quota-time");
 const { createClaudeTranscriptWatcher } = require("./claude-transcript-watcher");
 const { createCodexTranscriptWatcher } = require("./codex-transcript-watcher");
+const {
+  ensureSessionStorage,
+  listSessions,
+  renameSession
+} = require("./session-store");
 const {
   APPEARANCE_PRESETS,
   MOTION_MODULES,
@@ -50,6 +58,8 @@ const distPath = path.join(__dirname, "..", "dist", "index.html");
 const replyBubblePath = path.join(__dirname, "reply-bubble.html");
 const PET_BUBBLE_ANCHOR_SIZE = 100;
 const PET_BUBBLE_ANCHOR_TOP = 40;
+const PET_PANEL_ANCHOR_SIZE = 100;
+const PET_PANEL_ANCHOR_TOP = 40;
 const REPLY_BUBBLE_SIZE_MAP = {
   small: { width: 280, height: 116 },
   medium: { width: 340, height: 132 },
@@ -60,9 +70,18 @@ const REPLY_BUBBLE_MARGIN = 8;
 const REPLY_BUBBLE_TOP_OFFSET = 14;
 const REPLY_BUBBLE_HIDE_DELAY_MS = 8000;
 const REPLY_BUBBLE_HOVER_LEAVE_HIDE_DELAY_MS = 3000;
+const SESSION_PANEL_WIDTH_RATIO = 0.24;
+const SESSION_PANEL_HEIGHT_RATIO = 0.58;
+const SESSION_PANEL_MIN_WIDTH = 320;
+const SESSION_PANEL_MAX_WIDTH = 460;
+const SESSION_PANEL_MIN_HEIGHT = 420;
+const SESSION_PANEL_MAX_HEIGHT = 720;
+const SESSION_PANEL_MARGIN = 8;
+const SESSION_PANEL_TOP_OFFSET = 14;
 const CONTEXT_MENU_ESTIMATED_WIDTH = 210;
 const CONTEXT_MENU_RIGHT_MARGIN = 10;
 const CONTEXT_MENU_LEFT_MARGIN = 5;
+const TERMINAL_SESSION_MARKER_PREFIX = "desktop-pet-session:";
 const TIME_ZONE_OPTIONS = {
   system: {
     label: "System",
@@ -103,6 +122,7 @@ const TIME_ZONE_OPTIONS = {
 
 let mainWindow;
 let replyBubbleWindow;
+let sessionPanelWindow;
 let tray;
 let currentQuota = readQuota();
 let eventWatcher;
@@ -116,12 +136,14 @@ let currentSoundSettings;
 let replyBubbleHideTimer;
 let isReplyBubbleHovered = false;
 let pendingReplyBubblePayload = null;
+let pendingSessionPanelPayload = null;
 
 function ensureDataFiles() {
   fs.mkdirSync(dataDir, { recursive: true });
   ensureAppearanceStorage(dataDir);
   ensureMenuSettings(dataDir);
   ensureSoundStorage(dataDir);
+  ensureSessionStorage(dataDir);
   if (!fs.existsSync(quotaPath)) {
     fs.writeFileSync(
       quotaPath,
@@ -219,7 +241,7 @@ function getUiStrings() {
       actionModule: "动作模组",
       actionModuleValue: (label) => `动作模组：${label}`,
       petImageCurrent: (label) => `桌宠形象：${label || "自定义"}`,
-      petImageDefault: "桌宠形象：默认像素宠物",
+      petImageDefault: "桌宠形象：默认人物 1",
       chooseCustomPetImage: "导入自定义桌宠图片",
       resetPetImage: "重置桌宠图片",
       sound: "声音",
@@ -292,7 +314,7 @@ function getUiStrings() {
     actionModule: "Action Module",
     actionModuleValue: (label) => `Action Module: ${label}`,
     petImageCurrent: (label) => `Pet Image: ${label || "Custom"}`,
-    petImageDefault: "Pet Image: Default Pixel Pet",
+    petImageDefault: "Pet Image: Story Girl",
     chooseCustomPetImage: "Import Custom Pet Image",
     resetPetImage: "Reset Pet Image",
     sound: "Sound",
@@ -854,6 +876,270 @@ function ensureReplyBubbleWindow() {
   return replyBubbleWindow;
 }
 
+function getPetPanelAnchorBounds() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return {
+      x: 160,
+      y: 120,
+      width: PET_PANEL_ANCHOR_SIZE,
+      height: PET_PANEL_ANCHOR_SIZE
+    };
+  }
+
+  const windowBounds = mainWindow.getBounds();
+  return {
+    x: windowBounds.x + Math.round((windowBounds.width - PET_PANEL_ANCHOR_SIZE) / 2),
+    y: windowBounds.y + PET_PANEL_ANCHOR_TOP,
+    width: PET_PANEL_ANCHOR_SIZE,
+    height: PET_PANEL_ANCHOR_SIZE
+  };
+}
+
+function getSessionPanelPosition() {
+  const petBounds = getPetPanelAnchorBounds();
+  const petCenter = {
+    x: petBounds.x + Math.round(petBounds.width / 2),
+    y: petBounds.y + Math.round(petBounds.height / 2)
+  };
+  const display = screen.getDisplayNearestPoint(petCenter);
+  const workArea = display.workArea;
+  const width = Math.max(
+    SESSION_PANEL_MIN_WIDTH,
+    Math.min(SESSION_PANEL_MAX_WIDTH, Math.round(workArea.width * SESSION_PANEL_WIDTH_RATIO))
+  );
+  const height = Math.max(
+    SESSION_PANEL_MIN_HEIGHT,
+    Math.min(SESSION_PANEL_MAX_HEIGHT, Math.round(workArea.height * SESSION_PANEL_HEIGHT_RATIO))
+  );
+  const rightSpace = workArea.x + workArea.width - (petBounds.x + petBounds.width) - SESSION_PANEL_MARGIN;
+  const leftSpace = petBounds.x - workArea.x - SESSION_PANEL_MARGIN;
+  const side = rightSpace >= width || rightSpace >= leftSpace
+    ? "right"
+    : "left";
+  const desiredX = side === "right"
+    ? petBounds.x + petBounds.width + SESSION_PANEL_MARGIN
+    : petBounds.x - width - SESSION_PANEL_MARGIN;
+  const desiredY = petBounds.y - SESSION_PANEL_TOP_OFFSET;
+
+  const x = Math.min(
+    workArea.x + workArea.width - width - SESSION_PANEL_MARGIN,
+    Math.max(workArea.x + SESSION_PANEL_MARGIN, desiredX)
+  );
+  const y = Math.min(
+    workArea.y + workArea.height - height - SESSION_PANEL_MARGIN,
+    Math.max(workArea.y + SESSION_PANEL_MARGIN, desiredY)
+  );
+
+  return { x, y, side, width, height };
+}
+
+function applySessionPanelPosition(panel) {
+  if (!panel || panel.isDestroyed()) {
+    return {
+      x: 160,
+      y: 120,
+      side: "right",
+      width: SESSION_PANEL_MIN_WIDTH,
+      height: SESSION_PANEL_MIN_HEIGHT
+    };
+  }
+
+  const placement = getSessionPanelPosition();
+  panel.setBounds({
+    x: placement.x,
+    y: placement.y,
+    width: placement.width,
+    height: placement.height
+  });
+
+  if (pendingSessionPanelPayload) {
+    pendingSessionPanelPayload = {
+      ...pendingSessionPanelPayload,
+      side: placement.side
+    };
+  }
+
+  if (!panel.webContents.isLoadingMainFrame()) {
+    panel.webContents.send("session-panel:layout", {
+      side: placement.side
+    });
+  }
+
+  return placement;
+}
+
+function sendSessionPanelPayload() {
+  if (!sessionPanelWindow || sessionPanelWindow.isDestroyed()) {
+    return;
+  }
+
+  const payload = {
+    sessions: listSessions(dataDir),
+    side: pendingSessionPanelPayload && pendingSessionPanelPayload.side
+      ? pendingSessionPanelPayload.side
+      : "right"
+  };
+
+  pendingSessionPanelPayload = payload;
+
+  if (!sessionPanelWindow.webContents.isLoadingMainFrame()) {
+    sessionPanelWindow.webContents.send("session-panel:data", payload);
+  }
+}
+
+function ensureSessionPanelWindow() {
+  if (sessionPanelWindow && !sessionPanelWindow.isDestroyed()) {
+    return sessionPanelWindow;
+  }
+
+  sessionPanelWindow = new BrowserWindow({
+    width: SESSION_PANEL_MIN_WIDTH,
+    height: SESSION_PANEL_MIN_HEIGHT,
+    show: false,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    skipTaskbar: true,
+    hasShadow: false,
+    alwaysOnTop: true,
+    webPreferences: {
+      preload: path.join(__dirname, "session-panel-preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+
+  sessionPanelWindow.setAlwaysOnTop(true, "floating");
+  sessionPanelWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  sessionPanelWindow.setMenuBarVisibility(false);
+  const rendererUrl = process.env.ELECTRON_RENDERER_URL;
+  if (rendererUrl) {
+    sessionPanelWindow.loadURL(`${rendererUrl}?panel=sessions`);
+  } else {
+    sessionPanelWindow.loadURL(`${pathToFileURL(distPath).toString()}?panel=sessions`);
+  }
+  sessionPanelWindow.webContents.on("did-finish-load", () => {
+    const placement = applySessionPanelPosition(sessionPanelWindow);
+    pendingSessionPanelPayload = {
+      sessions: listSessions(dataDir),
+      side: placement.side
+    };
+    sessionPanelWindow.webContents.send("session-panel:layout", {
+      side: placement.side
+    });
+    sessionPanelWindow.webContents.send("session-panel:data", pendingSessionPanelPayload);
+  });
+  sessionPanelWindow.on("closed", () => {
+    sessionPanelWindow = null;
+    pendingSessionPanelPayload = null;
+  });
+  sessionPanelWindow.on("blur", () => {
+    hideSessionPanel();
+  });
+
+  return sessionPanelWindow;
+}
+
+function showSessionPanel() {
+  const panel = ensureSessionPanelWindow();
+  const placement = applySessionPanelPosition(panel);
+  pendingSessionPanelPayload = {
+    sessions: listSessions(dataDir),
+    side: placement.side
+  };
+  panel.show();
+  panel.focus();
+  panel.moveTop();
+
+  if (!panel.webContents.isLoadingMainFrame()) {
+    panel.webContents.send("session-panel:layout", { side: placement.side });
+    panel.webContents.send("session-panel:data", pendingSessionPanelPayload);
+  }
+}
+
+function hideSessionPanel() {
+  if (!sessionPanelWindow || sessionPanelWindow.isDestroyed()) {
+    return;
+  }
+
+  sessionPanelWindow.hide();
+}
+
+function quoteForDoubleQuotes(value) {
+  return String(value || "")
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, "\\\"");
+}
+
+function quoteForSingleQuotes(value) {
+  return String(value || "")
+    .replace(/\\/g, "\\\\")
+    .replace(/'/g, "'\\''");
+}
+
+function buildResumeCommand(session) {
+  const cwd = session.cwd || os.homedir();
+  if (session.source === "claude") {
+    return `cd '${quoteForSingleQuotes(cwd)}' && claude --resume ${session.sessionId}`;
+  }
+
+  return `cd '${quoteForSingleQuotes(cwd)}' && codex resume ${session.sessionId}`;
+}
+
+function buildTerminalMarker(session) {
+  return `${TERMINAL_SESSION_MARKER_PREFIX}${session.source}:${session.sessionId}`;
+}
+
+function focusExistingTerminalSession(marker) {
+  const markerText = quoteForDoubleQuotes(marker);
+  const script = [
+    "tell application \"Terminal\"",
+    "activate",
+    "repeat with currentWindow in windows",
+    "repeat with currentTab in tabs of currentWindow",
+    `if custom title of currentTab is \"${markerText}\" then`,
+    "set selected of currentTab to true",
+    "set index of currentWindow to 1",
+    "return true",
+    "end if",
+    "end repeat",
+    "end repeat",
+    "return false",
+    "end tell"
+  ].join("\n");
+
+  try {
+    const result = execFileSync("osascript", ["-e", script], { encoding: "utf8" }).trim();
+    return result === "true";
+  } catch {
+    return false;
+  }
+}
+
+function openTerminalSession(session) {
+  const marker = buildTerminalMarker(session);
+  if (focusExistingTerminalSession(marker)) {
+    return { reused: true };
+  }
+
+  const command = buildResumeCommand(session);
+  const markerText = quoteForDoubleQuotes(marker);
+  const commandText = quoteForDoubleQuotes(command);
+  const script = [
+    "tell application \"Terminal\"",
+    "activate",
+    `set createdTab to do script \"${commandText}\"`,
+    `set custom title of createdTab to \"${markerText}\"`,
+    "return true",
+    "end tell"
+  ].join("\n");
+
+  execFileSync("osascript", ["-e", script], { encoding: "utf8" });
+  return { reused: false };
+}
+
 function getPetBubbleAnchorBounds() {
   if (!mainWindow || mainWindow.isDestroyed()) {
     return {
@@ -1163,6 +1449,15 @@ function createWindow() {
     mainWindow = null;
   });
 
+  mainWindow.on("move", () => {
+    if (replyBubbleWindow && !replyBubbleWindow.isDestroyed() && replyBubbleWindow.isVisible()) {
+      applyReplyBubblePosition(replyBubbleWindow);
+    }
+    if (sessionPanelWindow && !sessionPanelWindow.isDestroyed() && sessionPanelWindow.isVisible()) {
+      applySessionPanelPosition(sessionPanelWindow);
+    }
+  });
+
   mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription) => {
     console.error("Renderer failed to load:", errorCode, errorDescription);
   });
@@ -1288,6 +1583,9 @@ app.on("before-quit", () => {
   if (replyBubbleWindow && !replyBubbleWindow.isDestroyed()) {
     replyBubbleWindow.close();
   }
+  if (sessionPanelWindow && !sessionPanelWindow.isDestroyed()) {
+    sessionPanelWindow.close();
+  }
   clearReplyBubbleHideTimer();
 });
 
@@ -1315,6 +1613,41 @@ ipcMain.handle("pet:reset-appearance", () => {
   return applyAppearance(resetAppearance(dataDir));
 });
 
+ipcMain.handle("pet:list-sessions", () => {
+  return {
+    sessions: listSessions(dataDir)
+  };
+});
+
+ipcMain.handle("pet:rename-session", (_event, payload) => {
+  const source = payload && typeof payload.source === "string" ? payload.source : "";
+  const sessionId = payload && typeof payload.sessionId === "string" ? payload.sessionId : "";
+  const title = payload && typeof payload.title === "string" ? payload.title : "";
+
+  renameSession(dataDir, source, sessionId, title);
+  const response = {
+    sessions: listSessions(dataDir)
+  };
+  sendSessionPanelPayload();
+  return response;
+});
+
+ipcMain.handle("pet:open-session", (_event, payload) => {
+  const source = payload && typeof payload.source === "string" ? payload.source : "";
+  const sessionId = payload && typeof payload.sessionId === "string" ? payload.sessionId : "";
+  const session = listSessions(dataDir).find((item) => item.source === source && item.sessionId === sessionId);
+
+  if (!session) {
+    throw new Error("Session not found");
+  }
+
+  const result = openTerminalSession(session);
+  return {
+    ok: true,
+    reused: result.reused
+  };
+});
+
 ipcMain.on("pet:open-context-menu", (_event, anchor) => {
   if (!mainWindow || mainWindow.isDestroyed()) {
     return;
@@ -1328,6 +1661,15 @@ ipcMain.on("pet:open-context-menu", (_event, anchor) => {
     y: position.y
   });
   void syncQuotaFromClaudeStatus({ animate: false });
+});
+
+ipcMain.on("pet:toggle-session-panel", () => {
+  if (sessionPanelWindow && !sessionPanelWindow.isDestroyed() && sessionPanelWindow.isVisible()) {
+    hideSessionPanel();
+    return;
+  }
+
+  showSessionPanel();
 });
 
 ipcMain.on("pet:drag-move", (_event, offset) => {
@@ -1344,6 +1686,9 @@ ipcMain.on("pet:drag-move", (_event, offset) => {
   if (replyBubbleWindow && !replyBubbleWindow.isDestroyed() && replyBubbleWindow.isVisible()) {
     applyReplyBubblePosition(replyBubbleWindow);
   }
+  if (sessionPanelWindow && !sessionPanelWindow.isDestroyed() && sessionPanelWindow.isVisible()) {
+    applySessionPanelPosition(sessionPanelWindow);
+  }
 });
 
 ipcMain.on("reply-bubble:hovered", (_event, payload) => {
@@ -1355,4 +1700,8 @@ ipcMain.on("reply-bubble:hovered", (_event, payload) => {
   }
 
   scheduleReplyBubbleHide(REPLY_BUBBLE_HOVER_LEAVE_HIDE_DELAY_MS);
+});
+
+ipcMain.on("session-panel:hide", () => {
+  hideSessionPanel();
 });
